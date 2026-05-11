@@ -253,6 +253,18 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinning { animation: spin .8s linear infinite; }
 
+    /* === TOGGLE SWITCH === */
+    .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; cursor: pointer; display: inline-block; }
+    .toggle input { display: none; }
+    .toggle-track { position: absolute; inset: 0; background: var(--border-s); border-radius: 10px; transition: background .2s; }
+    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .2s; pointer-events: none; }
+    .toggle input:checked ~ .toggle-thumb { left: 18px; }
+
+    /* === AUTOSYNC PULSE === */
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+
     /* === PROGRESS MINI BAR === */
     .mini-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
     .mini-bar-fill { height: 100%; border-radius: 2px; transition: width .6s; }
@@ -416,6 +428,29 @@
           同步数据
         </button>
         <button class="btn btn-ghost" onclick="pickFolder()">选择文件夹</button>
+      </div>
+
+      <!-- AUTO-SYNC SETTINGS CARD -->
+      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:20px">
+        <div class="flex items-c" style="justify-content:space-between;margin-bottom:14px">
+          <span class="fw6 txt-sm">自动同步</span>
+          <span class="txt-xs" id="autosync-status" style="color:var(--accent)"></span>
+        </div>
+        <div class="flex items-c gap12" style="flex-wrap:wrap">
+          <div class="flex items-c gap8">
+            <label class="toggle">
+              <input type="checkbox" id="autosync-toggle" onchange="onAutoSyncToggle()">
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+            <span class="txt-sm" id="autosync-label">已关闭</span>
+          </div>
+          <div class="flex items-c gap8" style="margin-left:16px">
+            <span class="txt-sm c-muted">同步间隔</span>
+            <input type="number" class="score-inp" id="autosync-interval" min="1" max="60" value="1" style="width:52px;text-align:center" onchange="onIntervalChange()">
+            <span class="txt-sm c-muted">分钟</span>
+          </div>
+        </div>
       </div>
 
       <div class="import-drop" onclick="pickFolder()">
@@ -1487,6 +1522,145 @@ function switchView(name) {
 }
 
 // ================================================================
+// AUTO-SYNC
+// ================================================================
+const LS_AUTOSYNC = 'pt_autosync';
+let _autoTimer    = null;
+let _cdownTimer   = null;
+
+function loadAutoSyncSettings() {
+  try {
+    const raw = localStorage.getItem(LS_AUTOSYNC);
+    if (raw) return JSON.parse(raw);
+  } catch(e) {}
+  return { enabled: true, interval: 1 };
+}
+function saveAutoSyncSettings(s) {
+  localStorage.setItem(LS_AUTOSYNC, JSON.stringify(s));
+}
+
+function applyAutoSync() {
+  const s = loadAutoSyncSettings();
+  const toggle = document.getElementById('autosync-toggle');
+  const intInp  = document.getElementById('autosync-interval');
+  if (toggle) toggle.checked = s.enabled;
+  if (intInp)  intInp.value  = s.interval;
+  _updateAutoSyncLabel(s.enabled);
+
+  clearInterval(_autoTimer);
+  clearInterval(_cdownTimer);
+
+  if (s.enabled) {
+    const ms = s.interval * 60 * 1000;
+    _autoTimer = setInterval(silentSync, ms);
+    _startCountdown(ms);
+  } else {
+    const status = document.getElementById('autosync-status');
+    if (status) status.textContent = '';
+  }
+}
+
+function _startCountdown(totalMs) {
+  let remaining = totalMs;
+  clearInterval(_cdownTimer);
+  _updateCountdownUI(remaining);
+  _cdownTimer = setInterval(() => {
+    remaining -= 1000;
+    if (remaining < 0) {
+      const s = loadAutoSyncSettings();
+      remaining = s.interval * 60 * 1000;
+    }
+    _updateCountdownUI(remaining);
+  }, 1000);
+}
+
+function _updateCountdownUI(ms) {
+  const el = document.getElementById('autosync-status');
+  if (!el) return;
+  const min = Math.floor(ms / 60000);
+  const sec = Math.floor((ms % 60000) / 1000);
+  el.innerHTML = `<span class="pulse" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle"></span>下次同步 ${min}:${String(sec).padStart(2,'0')} 后`;
+}
+
+function _updateAutoSyncLabel(enabled) {
+  const label  = document.getElementById('autosync-label');
+  const status = document.getElementById('autosync-status');
+  if (label) {
+    label.textContent = enabled ? '已开启' : '已关闭';
+    label.style.color = enabled ? 'var(--accent)' : '';
+  }
+  if (status && !enabled) status.textContent = '';
+}
+
+function onAutoSyncToggle() {
+  const enabled  = document.getElementById('autosync-toggle').checked;
+  const interval = parseInt(document.getElementById('autosync-interval').value) || 1;
+  saveAutoSyncSettings({ enabled, interval });
+  applyAutoSync();
+  showToast(enabled ? `自动同步已开启，每 ${interval} 分钟同步一次` : '自动同步已关闭');
+}
+
+function onIntervalChange() {
+  const enabled  = document.getElementById('autosync-toggle').checked;
+  let interval   = parseInt(document.getElementById('autosync-interval').value) || 1;
+  interval = Math.min(60, Math.max(1, interval));
+  document.getElementById('autosync-interval').value = interval;
+  saveAutoSyncSettings({ enabled, interval });
+  applyAutoSync();
+  if (enabled) showToast(`同步间隔已更新为 ${interval} 分钟`);
+}
+
+async function silentSync() {
+  const dirHandle = await idbGet(IDB_STORE, 'dirHandle');
+  if (!dirHandle) return;
+  try {
+    const perm = await dirHandle.queryPermission({ mode: 'read' });
+    if (perm !== 'granted') return;
+  } catch(e) { return; }
+
+  const projects  = [];
+  const filesMeta = [];
+  try {
+    for await (const [name, entry] of dirHandle.entries()) {
+      if (entry.kind !== 'file') continue;
+      if (!name.toLowerCase().endsWith('.xlsx')) continue;
+      if (name.startsWith('~$')) continue;
+      const file   = await entry.getFile();
+      const buffer = await file.arrayBuffer();
+      const proj   = parseXlsx(buffer, name);
+      if (proj) {
+        projects.push(proj);
+        filesMeta.push({ name, size: Math.round(file.size / 1024),
+          lastModified: new Date(file.lastModified).toLocaleString('zh-CN'),
+          tasks: proj.tasks.length, risks: proj.risks.length });
+      }
+    }
+  } catch(e) { return; }
+
+  if (!projects.length) return;
+
+  projects.sort((a, b) => a.filename.localeCompare(b.filename, 'zh'));
+  projects.forEach((p, i) => p.code = `P${String(i+1).padStart(2,'0')}`);
+
+  currentData = { projects, folderName: dirHandle.name,
+    lastSync: new Date().toISOString(), files: filesMeta };
+  saveData();
+
+  for (const p of currentData.projects) {
+    for (const r of (p.risks || [])) {
+      const sc = await getScores(p.name, r.mode);
+      r._rpn = sc.s * sc.o * sc.d;
+    }
+  }
+  renderAll();
+  showToast('自动同步完成');
+
+  // Reset countdown after a successful sync
+  const s = loadAutoSyncSettings();
+  if (s.enabled) _startCountdown(s.interval * 60 * 1000);
+}
+
+// ================================================================
 // TOAST
 // ================================================================
 function showToast(msg) {
@@ -1530,6 +1704,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (currentData.projects.length) {
     renderDashboard();
   }
+
+  // Start auto-sync (default: enabled, 1 min)
+  applyAutoSync();
 });
 </script>
 </body>
