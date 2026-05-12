@@ -1,1045 +1,2585 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>项目跟进助手</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg: #0A0E1A; --bg-2: #0D1220; --bg-3: #131827;
-      --bg-card: rgba(255,255,255,0.035); --bg-hover: rgba(255,255,255,0.06);
-      --border: rgba(255,255,255,0.08); --border-s: rgba(255,255,255,0.14);
-      --text: #DDE3EE; --text-2: #7E8B9E; --text-3: #414D5E;
-      --accent: #4F6EF7; --accent-bg: rgba(79,110,247,0.1);
-      --success: #3ECF8E; --success-bg: rgba(62,207,142,0.1);
-      --warn: #F5A623; --warn-bg: rgba(245,166,35,0.1);
-      --danger: #F04D4D; --danger-bg: rgba(240,77,77,0.1);
-      --sidebar-w: 220px; --topbar-h: 54px; --r: 10px; --r-sm: 6px;
-    }
-
-    html, body { height: 100%; font-family: -apple-system,"PingFang SC","Microsoft YaHei","Hiragino Sans GB",sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; overflow: hidden; }
-
-    .app { display: grid; grid-template-rows: var(--topbar-h) 1fr; grid-template-columns: var(--sidebar-w) 1fr; height: 100vh; }
-
-    /* === TOPBAR === */
-    .topbar { grid-column: 1/-1; display: flex; align-items: center; padding: 0 20px; background: var(--bg-2); border-bottom: 1px solid var(--border); gap: 12px; }
-    .logo { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; color: var(--text); text-decoration: none; flex-shrink: 0; user-select: none; }
-    .logo-mark { width: 28px; height: 28px; background: var(--accent); border-radius: 7px; display: flex; align-items: center; justify-content: center; }
-    .topbar-source { display: flex; align-items: center; gap: 7px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 5px 12px; font-size: 12px; color: var(--text-2); cursor: pointer; flex: 1; max-width: 420px; transition: border-color .2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .topbar-source:hover { border-color: var(--border-s); color: var(--text); }
-    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: var(--r-sm); font-size: 13px; cursor: pointer; border: none; font-family: inherit; transition: all .15s; white-space: nowrap; }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-primary:hover { background: #3a5af0; }
-    .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
-    .btn-ghost:hover { background: var(--bg-hover); color: var(--text); }
-    .btn-warn { background: var(--warn); color: #fff; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .icon-btn { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: var(--r-sm); cursor: pointer; background: transparent; border: none; color: var(--text-2); transition: all .15s; position: relative; }
-    .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
-    .notif-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; background: var(--danger); border-radius: 50%; border: 1.5px solid var(--bg-2); }
-    .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; cursor: pointer; flex-shrink: 0; }
-
-    /* === SIDEBAR === */
-    .sidebar { background: var(--bg-2); border-right: 1px solid var(--border); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-    .nav-sec { font-size: 10px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; padding: 12px 8px 4px; }
-    .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: var(--r-sm); cursor: pointer; color: var(--text-2); font-size: 13px; transition: all .15s; user-select: none; }
-    .nav-item:hover { background: var(--bg-hover); color: var(--text); }
-    .nav-item.active { background: var(--accent-bg); color: var(--accent); }
-    .nav-item svg { flex-shrink: 0; opacity: .7; }
-    .nav-item.active svg { opacity: 1; }
-    .nav-badge { margin-left: auto; font-size: 11px; background: var(--bg-hover); color: var(--text-2); padding: 1px 6px; border-radius: 10px; }
-    .nav-item.active .nav-badge { background: var(--accent-bg); color: var(--accent); }
-
-    /* === MAIN === */
-    .main { overflow-y: auto; overflow-x: hidden; background: var(--bg); }
-    .view { display: none; padding: 24px 28px; }
-    .view.active { display: block; }
-
-    /* === PAGE HEADER === */
-    .page-hd { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
-    .page-hd h1 { font-size: 20px; font-weight: 600; line-height: 1.3; }
-    .page-hd p { font-size: 13px; color: var(--text-2); margin-top: 3px; }
-
-    /* === KPI === */
-    .kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 26px; }
-    .kpi-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r); padding: 16px 18px; transition: border-color .2s; }
-    .kpi-card:hover { border-color: var(--border-s); }
-    .kpi-label { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
-    .kpi-val { font-size: 28px; font-weight: 700; line-height: 1; margin-bottom: 5px; }
-    .kpi-sub { font-size: 12px; color: var(--text-2); }
-    .kpi-bar { height: 3px; background: var(--border); border-radius: 2px; margin-top: 10px; overflow: hidden; }
-    .kpi-fill { height: 100%; border-radius: 2px; transition: width .7s ease; }
-
-    /* === SECTION === */
-    .sec-hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-    .sec-title { font-size: 15px; font-weight: 600; }
-    .sec-sub { font-size: 12px; color: var(--text-2); margin-left: 8px; }
-
-    /* === PROJECT CARDS === */
-    .proj-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(310px,1fr)); gap: 12px; }
-    .proj-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r); padding: 18px; cursor: pointer; transition: border-color .2s, background .2s; }
-    .proj-card:hover { border-color: var(--border-s); background: var(--bg-hover); }
-    .proj-card.sel { border-color: var(--accent); background: var(--accent-bg); }
-    .proj-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
-    .proj-meta { flex: 1; padding-right: 12px; }
-    .proj-code { font-size: 11px; color: var(--text-3); margin-bottom: 4px; font-weight: 500; }
-    .proj-name { font-size: 14px; font-weight: 600; line-height: 1.4; margin-bottom: 7px; }
-    .owner-row { display: flex; align-items: center; gap: 6px; }
-    .mini-av { width: 18px; height: 18px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; color: #fff; flex-shrink: 0; }
-    .ring-wrap { flex-shrink: 0; position: relative; width: 58px; height: 58px; }
-    .ring-svg { transform: rotate(-90deg); }
-    .ring-track { stroke: var(--border); fill: none; }
-    .ring-fill { fill: none; stroke-linecap: round; transition: stroke-dashoffset .9s ease; }
-    .ring-txt { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 12px; font-weight: 700; line-height: 1; }
-    .stag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-    .sdot { width: 5px; height: 5px; border-radius: 50%; }
-    .stag-healthy { background: var(--success-bg); color: var(--success); }
-    .stag-at_risk { background: var(--warn-bg); color: var(--warn); }
-    .stag-delayed { background: var(--danger-bg); color: var(--danger); }
-    .proj-update { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
-    .proj-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
-
-    /* === EMPTY STATE === */
-    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; text-align: center; }
-    .empty-icon { width: 64px; height: 64px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; }
-    .empty-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-    .empty-sub { font-size: 13px; color: var(--text-2); margin-bottom: 24px; max-width: 340px; line-height: 1.6; }
-
-    /* === HEATMAP === */
-    .heatmap-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r); padding: 20px 24px; margin-top: 24px; overflow-x: auto; }
-    .hmap-tbl { border-collapse: separate; border-spacing: 3px; }
-    .hmap-cell { width: 42px; height: 34px; border-radius: 4px; text-align: center; vertical-align: middle; font-size: 11px; font-weight: 600; cursor: default; }
-    .hmap-lbl { font-size: 11px; color: var(--text-2); padding: 4px 10px; white-space: nowrap; }
-    .hmap-lbl-col { font-size: 10px; color: var(--text-3); text-align: center; padding: 4px 3px; writing-mode: vertical-rl; }
-
-    /* === DIVIDER === */
-    .divider { height: 1px; background: var(--border); margin: 22px 0; }
-
-    /* === DRAWER === */
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 90; display: none; opacity: 0; transition: opacity .25s; }
-    .overlay.open { display: block; opacity: 1; }
-    .drawer { position: fixed; top: var(--topbar-h); right: 0; bottom: 0; width: 500px; background: var(--bg-2); border-left: 1px solid var(--border); z-index: 100; transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1); display: flex; flex-direction: column; overflow: hidden; }
-    .drawer.open { transform: translateX(0); }
-    .drawer-hd { padding: 20px 22px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; position: relative; }
-    .drawer-close { position: absolute; top: 14px; right: 16px; cursor: pointer; width: 28px; height: 28px; border-radius: var(--r-sm); display: flex; align-items: center; justify-content: center; color: var(--text-2); border: none; background: transparent; transition: background .15s; }
-    .drawer-close:hover { background: var(--bg-hover); color: var(--text); }
-    .drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px; }
-
-    /* === TABS === */
-    .tabs { display: flex; gap: 2px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px; margin-bottom: 20px; }
-    .tab { flex: 1; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; text-align: center; color: var(--text-2); transition: all .15s; user-select: none; }
-    .tab.active { background: var(--bg-3); color: var(--text); font-weight: 500; }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* === TIMELINE === */
-    .tl { display: flex; gap: 0; overflow-x: auto; padding-bottom: 6px; margin-bottom: 20px; }
-    .tl-item { flex: 1; min-width: 80px; display: flex; flex-direction: column; align-items: center; position: relative; }
-    .tl-item:not(:last-child)::after { content: ''; position: absolute; top: 9px; left: calc(50% + 10px); right: calc(-50% + 10px); height: 2px; background: var(--border); }
-    .tl-item.done:not(:last-child)::after { background: var(--success); }
-    .tl-dot { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg-2); display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; margin-bottom: 8px; flex-shrink: 0; }
-    .tl-item.done .tl-dot { border-color: var(--success); background: var(--success); }
-    .tl-item.current .tl-dot { border-color: var(--accent); background: var(--accent); }
-    .tl-name { font-size: 11px; color: var(--text-2); text-align: center; line-height: 1.3; }
-    .tl-date { font-size: 10px; color: var(--text-3); text-align: center; margin-top: 2px; }
-
-    /* === TASK === */
-    .task-grp { margin-bottom: 16px; }
-    .task-grp-hd { font-size: 11px; font-weight: 600; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
-    .task-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); margin-bottom: 3px; background: var(--bg-card); border: 1px solid var(--border); }
-    .task-chk { width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-    .task-chk.done { border-color: var(--success); background: var(--success); }
-    .task-chk.cur { border-color: var(--accent); }
-    .task-name { flex: 1; font-size: 13px; }
-    .task-name.struck { color: var(--text-3); text-decoration: line-through; }
-
-    /* === RISK PREVIEW === */
-    .risk-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg-card); border: 1px solid var(--border); margin-bottom: 5px; cursor: pointer; transition: border-color .15s; }
-    .risk-row:hover { border-color: var(--border-s); }
-    .rpn-pill { font-size: 12px; font-weight: 700; min-width: 38px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 4px; flex-shrink: 0; }
-    .rpn-h { background: var(--danger-bg); color: var(--danger); }
-    .rpn-m { background: var(--warn-bg); color: var(--warn); }
-    .rpn-l { background: var(--success-bg); color: var(--success); }
-    .risk-measure { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 12px; margin-bottom: 8px; margin-top: -3px; font-size: 12px; color: var(--text-2); }
-
-    /* === ACTION === */
-    .action-row { display: flex; align-items: flex-start; gap: 10px; padding: 11px 12px; border-radius: var(--r-sm); background: var(--bg-card); border: 1px solid var(--border); margin-bottom: 6px; }
-    .pri-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
-    .pri-high { background: var(--danger); }
-    .pri-medium { background: var(--warn); }
-    .pri-low { background: var(--success); }
-
-    /* === FMEA === */
-    .fmea-filter-row { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-    .sel { padding: 6px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); font-size: 13px; font-family: inherit; cursor: pointer; outline: none; transition: border-color .2s; }
-    .sel:focus { border-color: var(--accent); }
-    .fmea-stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 22px; }
-    .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r); }
-    table { width: 100%; border-collapse: collapse; }
-    thead tr { background: var(--bg-3); }
-    th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: .06em; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-    tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: var(--bg-hover); }
-    .score-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.25); }
-    .score-inp { width: 42px; padding: 3px 6px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; font-weight: 700; font-family: inherit; text-align: center; outline: none; transition: border-color .2s; }
-    .score-inp:focus { border-color: var(--accent); }
-
-    /* === KANBAN === */
-    .kanban { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
-    .kn-col { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
-    .kn-col-hd { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-    .kn-col-title { font-size: 13px; font-weight: 600; }
-    .kn-col-cnt { font-size: 11px; color: var(--text-2); background: var(--bg-hover); padding: 1px 7px; border-radius: 10px; }
-    .kn-col-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; min-height: 160px; }
-    .kn-card { background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px; cursor: pointer; transition: border-color .15s; }
-    .kn-card:hover { border-color: var(--border-s); }
-    .kn-title { font-size: 13px; font-weight: 500; line-height: 1.4; margin-bottom: 9px; }
-    .kn-foot { display: flex; align-items: center; justify-content: space-between; }
-    .proj-tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--accent-bg); color: var(--accent); font-weight: 500; }
-    .due-txt { font-size: 11px; color: var(--text-2); }
-    .due-soon { color: var(--warn); }
-    .due-over { color: var(--danger); }
-
-    /* === IMPORT === */
-    .import-drop { border: 2px dashed var(--border); border-radius: var(--r); padding: 44px 24px; text-align: center; cursor: pointer; transition: all .2s; margin-bottom: 22px; }
-    .import-drop:hover { border-color: var(--accent); background: var(--accent-bg); }
-    .drop-icon { width: 48px; height: 48px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 14px; }
-    .path-row { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
-    .path-display { flex: 1; padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text-2); font-size: 13px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .file-list { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
-    .file-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-    .file-row:last-child { border-bottom: none; }
-    .file-ico { width: 32px; height: 32px; border-radius: 7px; background: var(--success-bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .file-name { font-size: 13px; font-weight: 500; }
-    .file-meta { font-size: 11px; color: var(--text-2); margin-top: 2px; }
-    .map-grid { display: grid; grid-template-columns: 1fr 20px 1fr; gap: 7px 12px; align-items: center; }
-    .map-src { padding: 6px 12px; border-radius: var(--r-sm); font-size: 12px; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-2); }
-    .map-dst { padding: 6px 12px; border-radius: var(--r-sm); font-size: 12px; background: var(--accent-bg); border: 1px solid rgba(79,110,247,.18); color: var(--accent); }
-    .map-arrow { color: var(--text-3); font-size: 13px; text-align: center; }
-
-    /* === CHART === */
-    .chart-box { position: relative; height: 260px; }
-
-    /* === ALERT BAR === */
-    .alert-bar { background: rgba(245,166,35,.07); border: 1px solid rgba(245,166,35,.18); border-radius: var(--r); padding: 14px 18px; margin-bottom: 20px; }
-
-    /* === SCROLLBAR === */
-    ::-webkit-scrollbar { width: 5px; height: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--border-s); }
-
-    /* === UTILS === */
-    .flex { display: flex; } .items-c { align-items: center; }
-    .gap4 { gap: 4px; } .gap6 { gap: 6px; } .gap8 { gap: 8px; } .gap12 { gap: 12px; }
-    .mt4 { margin-top: 4px; } .mt8 { margin-top: 8px; } .mt12 { margin-top: 12px; }
-    .mt16 { margin-top: 16px; } .mt20 { margin-top: 20px; }
-    .mb8 { margin-bottom: 8px; } .mb12 { margin-bottom: 12px; } .mb16 { margin-bottom: 16px; }
-    .fw6 { font-weight: 600; }
-    .txt-xs { font-size: 11px; } .txt-sm { font-size: 12px; }
-    .c-accent { color: var(--accent); } .c-success { color: var(--success); }
-    .c-warn { color: var(--warn); } .c-danger { color: var(--danger); }
-    .c-muted { color: var(--text-2); } .c-dim { color: var(--text-3); }
-    [data-tip] { position: relative; }
-    [data-tip]:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 5px); left: 50%; transform: translateX(-50%); background: var(--bg-3); border: 1px solid var(--border); color: var(--text); font-size: 11px; padding: 4px 9px; border-radius: 5px; white-space: nowrap; pointer-events: none; z-index: 9999; }
-
-    /* === SYNC SPINNER === */
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .spinning { animation: spin .8s linear infinite; }
-
-    /* === TOGGLE SWITCH === */
-    .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; cursor: pointer; display: inline-block; }
-    .toggle input { display: none; }
-    .toggle-track { position: absolute; inset: 0; background: var(--border-s); border-radius: 10px; transition: background .2s; }
-    .toggle input:checked + .toggle-track { background: var(--accent); }
-    .toggle-thumb { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .2s; pointer-events: none; }
-    .toggle input:checked ~ .toggle-thumb { left: 18px; }
-
-    /* === AUTOSYNC PULSE === */
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
-    .pulse { animation: pulse 2s ease-in-out infinite; }
-
-    /* === PROGRESS MINI BAR === */
-    .mini-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 6px; }
-    .mini-bar-fill { height: 100%; border-radius: 2px; transition: width .6s; }
-  </style>
-</head>
-<body>
-<div class="app">
-
-  <!-- TOPBAR -->
-  <header class="topbar">
-    <div class="logo">
-      <div class="logo-mark">
-        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-          <rect x="1" y="1" width="5.5" height="5.5" rx="1.5" fill="white"/>
-          <rect x="8.5" y="1" width="5.5" height="5.5" rx="1.5" fill="white" opacity=".7"/>
-          <rect x="1" y="8.5" width="5.5" height="5.5" rx="1.5" fill="white" opacity=".7"/>
-          <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1.5" fill="white" opacity=".4"/>
-        </svg>
-      </div>
-      项目跟进助手
-    </div>
-    <div class="topbar-source" onclick="switchView('import')">
-      <svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor" opacity=".6"><path d="M1.5 3a1 1 0 0 1 1-1h2.17a1 1 0 0 1 .71.29l.83.83A1 1 0 0 0 6.91 3.4H9.5a1 1 0 0 1 1 1V9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3z"/></svg>
-      <span id="topbar-folder">未配置文件夹</span>
-    </div>
-    <div class="topbar-right">
-      <button class="btn btn-primary" id="sync-btn" onclick="syncFiles()">
-        <svg id="sync-icon" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-          <path d="M11 6A5 5 0 1 1 1 6m0-2v2h2"/>
-        </svg>
-        同步数据
-      </button>
-      <div class="avatar" data-tip="管理员">K</div>
-    </div>
-  </header>
-
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="nav-sec">主菜单</div>
-    <div class="nav-item active" id="nav-dashboard" onclick="switchView('dashboard')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="5" height="5" rx="1"/><rect x="8" y="1" width="5" height="5" rx="1"/><rect x="1" y="8" width="5" height="5" rx="1"/><rect x="8" y="8" width="5" height="5" rx="1"/></svg>
-      项目总览
-      <span class="nav-badge" id="nb-proj">0</span>
-    </div>
-    <div class="nav-item" id="nav-fmea" onclick="switchView('fmea')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 1.5 1.5 12.5h11L7 1.5z" stroke-linejoin="round"/><path d="M7 6v3.5" stroke-linecap="round"/><circle cx="7" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>
-      风险分析 (FMEA)
-      <span class="nav-badge" id="nb-risk">0</span>
-    </div>
-    <div class="nav-item" id="nav-actions" onclick="switchView('actions')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="12" height="12" rx="2"/><path d="M4 4h6M4 7h5M4 10h3" stroke-linecap="round"/></svg>
-      跟进中心
-      <span class="nav-badge" id="nb-action">0</span>
-    </div>
-    <div class="nav-sec" style="margin-top:8px">配置</div>
-    <div class="nav-item" id="nav-import" onclick="switchView('import')">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4a1 1 0 0 1 1-1h2l1.5 1.5H11a1 1 0 0 1 1 1V11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z"/></svg>
-      数据导入
-    </div>
-  </aside>
-
-  <!-- MAIN -->
-  <main class="main">
-
-    <!-- DASHBOARD -->
-    <div class="view active" id="view-dashboard">
-      <div class="page-hd">
-        <div>
-          <h1>项目总览</h1>
-          <p id="dash-subtitle">加载中...</p>
-        </div>
-        <div class="flex items-c gap8">
-          <button class="btn btn-ghost" onclick="syncFiles()">
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 6A5 5 0 1 1 1 6m0-2v2h2"/></svg>
-            刷新
-          </button>
-        </div>
-      </div>
-      <div class="kpi-row" id="kpi-row"></div>
-      <div class="sec-hd">
-        <div class="flex items-c"><span class="sec-title">重点项目</span><span class="sec-sub">点击项目卡片查看详情</span></div>
-      </div>
-      <div id="proj-grid"></div>
-      <div id="heatmap-section" style="display:none">
-        <div class="divider"></div>
-        <div class="sec-hd"><span class="sec-title">风险全景热力矩阵</span><span class="sec-sub txt-xs c-muted">横轴=项目，纵轴=RPN等级，数字=风险条数</span></div>
-        <div class="heatmap-box" id="heatmap-box"></div>
-      </div>
-    </div>
-
-    <!-- FMEA -->
-    <div class="view" id="view-fmea">
-      <div class="page-hd">
-        <div><h1>FMEA 风险分析</h1><p>失效模式与影响分析 · 点击 S/O/D 评分可编辑并保存</p></div>
-        <div class="flex gap8">
-          <button class="btn btn-ghost" onclick="exportFMEA()">导出 CSV</button>
-          <button class="btn btn-primary" onclick="resetFMEAScores()">重置评分</button>
-        </div>
-      </div>
-      <div style="background:var(--accent-bg);border:1px solid rgba(79,110,247,.18);border-radius:var(--r);padding:14px 18px;margin-bottom:20px;">
-        <div class="flex items-c gap8 mb8">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--accent)" stroke-width="1.5"><circle cx="7" cy="7" r="5.5"/><path d="M7 4.5v3.5M7 9.5v.5" stroke-linecap="round"/></svg>
-          <span class="fw6 c-accent txt-sm">关于 FMEA 评分</span>
-        </div>
-        <div class="txt-sm c-muted" style="line-height:1.6">
-          <strong style="color:var(--text)">严重度 S</strong>（1-10）× <strong style="color:var(--text)">发生率 O</strong>（1-10）× <strong style="color:var(--text)">可探测度 D</strong>（1-10）= <strong style="color:var(--accent)">RPN 风险优先数</strong>。
-          风险从 Excel 自动提取，评分已根据风险描述智能赋值，可点击数字编辑后自动保存到本地。
-        </div>
-      </div>
-      <div class="fmea-stats" id="fmea-stats"></div>
-      <div class="fmea-filter-row">
-        <select class="sel" id="fmea-proj-sel" onchange="renderFMEA()"><option value="">全部项目</option></select>
-        <select class="sel" id="fmea-lvl-sel" onchange="renderFMEA()">
-          <option value="">全部风险等级</option>
-          <option value="high">高风险 (RPN ≥ 200)</option>
-          <option value="mid">中风险 (RPN 100–199)</option>
-          <option value="low">低风险 (RPN &lt; 100)</option>
-        </select>
-      </div>
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr>
-            <th>项目</th><th>风险阶段</th><th>失效模式</th><th>影响对象</th>
-            <th style="text-align:center">S</th><th style="text-align:center">O</th><th style="text-align:center">D</th>
-            <th style="text-align:center">RPN</th><th>预防/控制措施</th><th>责任人</th><th>截止日期</th>
-          </tr></thead>
-          <tbody id="fmea-tbody"></tbody>
-        </table>
-      </div>
-      <div class="divider"></div>
-      <div class="sec-hd"><span class="sec-title">风险优先排序</span><span class="sec-sub txt-xs">Top 15 · 按 RPN 降序</span></div>
-      <div class="chart-box"><canvas id="fmea-chart"></canvas></div>
-    </div>
-
-    <!-- ACTIONS -->
-    <div class="view" id="view-actions">
-      <div class="page-hd"><div><h1>跟进中心</h1><p>基于 Excel 进度数据自动提取的待跟进任务</p></div></div>
-      <div class="alert-bar" id="weekly-bar">
-        <div class="flex items-c gap8 mb12">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="var(--warn)"><path d="M7 1.5 1.5 12.5h11L7 1.5z" stroke="none"/><path d="M7 6v3" stroke="var(--bg)" stroke-width="1.2" stroke-linecap="round" fill="none"/><circle cx="7" cy="10.5" r=".5" fill="var(--bg)"/></svg>
-          <span class="fw6 c-warn txt-sm">本周重点关注（14天内到期）</span>
-        </div>
-        <div id="weekly-items"></div>
-      </div>
-      <div class="kanban" id="kanban"></div>
-    </div>
-
-    <!-- IMPORT -->
-    <div class="view" id="view-import">
-      <div class="page-hd"><div><h1>数据导入</h1><p>选择包含 Excel 模板文件的文件夹，点击"同步数据"读取分析</p></div></div>
-
-      <div id="no-fs-api" style="display:none;background:var(--danger-bg);border:1px solid rgba(240,77,77,.2);border-radius:var(--r);padding:14px 18px;margin-bottom:20px">
-        <span class="c-danger fw6">⚠ 浏览器不支持</span>
-        <span class="txt-sm c-muted" style="margin-left:8px">文件系统访问 API 需要 Chrome 93+ 或 Edge 93+ 浏览器，请切换浏览器后重试。</span>
-      </div>
-
-      <div class="path-row">
-        <div class="path-display" id="folder-display">尚未选择文件夹</div>
-        <button class="btn btn-primary" onclick="syncFiles()">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 6A5 5 0 1 1 1 6m0-2v2h2"/></svg>
-          同步数据
-        </button>
-        <button class="btn btn-ghost" onclick="pickFolder()">选择文件夹</button>
-      </div>
-
-      <!-- AUTO-SYNC SETTINGS CARD -->
-      <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:16px 20px;margin-bottom:20px">
-        <div class="flex items-c" style="justify-content:space-between;margin-bottom:14px">
-          <span class="fw6 txt-sm">自动同步</span>
-          <span class="txt-xs" id="autosync-status" style="color:var(--accent)"></span>
-        </div>
-        <div class="flex items-c gap12" style="flex-wrap:wrap">
-          <div class="flex items-c gap8">
-            <label class="toggle">
-              <input type="checkbox" id="autosync-toggle" onchange="onAutoSyncToggle()">
-              <div class="toggle-track"></div>
-              <div class="toggle-thumb"></div>
-            </label>
-            <span class="txt-sm" id="autosync-label">已关闭</span>
-          </div>
-          <div class="flex items-c gap8" style="margin-left:16px">
-            <span class="txt-sm c-muted">同步间隔</span>
-            <input type="number" class="score-inp" id="autosync-interval" min="1" max="60" value="1" style="width:52px;text-align:center" onchange="onIntervalChange()">
-            <span class="txt-sm c-muted">分钟</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="import-drop" onclick="pickFolder()">
-        <div class="drop-icon">
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round">
-            <path d="M3 8a2 2 0 0 1 2-2h3.17a2 2 0 0 1 1.41.59L11 8h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/>
-          </svg>
-        </div>
-        <div class="fw6 mb8">点击选择项目 Excel 文件夹</div>
-        <div class="txt-sm c-muted">支持 .xlsx 格式，固定模板（子项 / 子项2 / 总结汇报表）</div>
-      </div>
-
-      <div id="file-list-section" style="display:none">
-        <div class="sec-hd"><span class="sec-title">已加载文件</span><span id="last-sync-label" class="txt-xs c-muted"></span></div>
-        <div class="file-list" id="file-list"></div>
-      </div>
-
-      <div class="mt20">
-        <div class="sec-hd"><span class="sec-title">字段映射说明</span><span class="sec-sub">Excel 模板列 → 系统字段</span></div>
-        <div class="map-grid">
-          <div class="txt-xs c-dim fw6" style="text-transform:uppercase;letter-spacing:.05em">Excel 列</div><div></div><div class="txt-xs c-dim fw6" style="text-transform:uppercase;letter-spacing:.05em">系统字段</div>
-          <div class="map-src">B 列 · 关键里程碑</div><div class="map-arrow">→</div><div class="map-dst">阶段/里程碑</div>
-          <div class="map-src">C 列 · 里程碑分解</div><div class="map-arrow">→</div><div class="map-dst">任务名称</div>
-          <div class="map-src">负责部门 / 负责人</div><div class="map-arrow">→</div><div class="map-dst">owner / dept</div>
-          <div class="map-src">开始时间 / 结束时间</div><div class="map-arrow">→</div><div class="map-dst">start / due</div>
-          <div class="map-src">工作进度 (0–1)</div><div class="map-arrow">→</div><div class="map-dst">progress (%)</div>
-          <div class="map-src">完成状态</div><div class="map-arrow">→</div><div class="map-dst">status</div>
-          <div class="map-src">阶段性完成情况汇报</div><div class="map-arrow">→</div><div class="map-dst">update</div>
-          <div class="map-src">风险</div><div class="map-arrow">→</div><div class="map-dst">risks[].mode</div>
-          <div class="map-src">解决措施</div><div class="map-arrow">→</div><div class="map-dst">risks[].measure</div>
-        </div>
-      </div>
-    </div>
-
-  </main>
-</div>
-
-<!-- OVERLAY -->
-<div class="overlay" id="overlay" onclick="closeDrawer()"></div>
-
-<!-- DRAWER -->
-<div class="drawer" id="drawer">
-  <div class="drawer-hd">
-    <div style="padding-right:34px">
-      <div class="txt-xs c-dim mb4" id="dr-code"></div>
-      <div style="font-size:16px;font-weight:600;margin-bottom:8px" id="dr-name"></div>
-      <div class="flex items-c gap8"><span id="dr-stag"></span><span class="txt-xs c-muted" id="dr-due"></span></div>
-    </div>
-    <button class="drawer-close" onclick="closeDrawer()">
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1.5 1.5 11.5 11.5M11.5 1.5 1.5 11.5"/></svg>
-    </button>
-  </div>
-  <div class="drawer-body">
-    <div class="tabs">
-      <div class="tab active" onclick="switchTab(this,'tp-tl')">时间线</div>
-      <div class="tab" onclick="switchTab(this,'tp-task')">任务进展</div>
-      <div class="tab" onclick="switchTab(this,'tp-risk')">风险清单</div>
-      <div class="tab" onclick="switchTab(this,'tp-act')">跟进事项</div>
-    </div>
-    <div class="tab-panel active" id="tp-tl"></div>
-    <div class="tab-panel" id="tp-task"></div>
-    <div class="tab-panel" id="tp-risk"></div>
-    <div class="tab-panel" id="tp-act"></div>
-  </div>
-</div>
-
-<!-- TOAST -->
-<div id="toast" style="position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-3);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:all .3s;pointer-events:none;max-width:400px;text-align:center"></div>
-
-<script>
-// ================================================================
-// CONSTANTS
-// ================================================================
-const LS_DATA    = 'pt_data';
-const IDB_NAME   = 'project-tracker';
-const IDB_STORE  = 'handles';
-const IDB_SCORES = 'fmea-scores';
-const TODAY      = new Date();
-
-// ================================================================
-// STORAGE — IndexedDB (directory handles + FMEA scores)
-// ================================================================
-let _db = null;
-async function getDB() {
-  if (_db) return _db;
-  return new Promise((res, rej) => {
-    const req = indexedDB.open(IDB_NAME, 1);
-    req.onupgradeneeded = e => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(IDB_STORE))  db.createObjectStore(IDB_STORE);
-      if (!db.objectStoreNames.contains(IDB_SCORES)) db.createObjectStore(IDB_SCORES);
-    };
-    req.onsuccess = e => { _db = e.target.result; res(_db); };
-    req.onerror   = e => rej(e.target.error);
-  });
-}
-async function idbPut(store, key, val) {
-  const db = await getDB();
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).put(val, key);
-    tx.oncomplete = () => res();
-    tx.onerror = e => rej(e.target.error);
-  });
-}
-async function idbGet(store, key) {
-  const db = await getDB();
-  return new Promise((res) => {
-    const tx = db.transaction(store, 'readonly');
-    const req = tx.objectStore(store).get(key);
-    req.onsuccess = e => res(e.target.result ?? null);
-    req.onerror   = () => res(null);
-  });
-}
-async function idbDel(store, key) {
-  const db = await getDB();
-  return new Promise((res) => {
-    const tx = db.transaction(store, 'readwrite');
-    tx.objectStore(store).delete(key);
-    tx.oncomplete = () => res();
-    tx.onerror    = () => res();
-  });
-}
-
-// ================================================================
-// FMEA SCORE PERSISTENCE
-// ================================================================
-async function getScores(pname, mode) {
-  const key = `${pname}||${mode}`;
-  const saved = await idbGet(IDB_SCORES, key);
-  if (saved) return saved;
-  return defaultScores(mode);
-}
-async function saveScores(pname, mode, s, o, d) {
-  const key = `${pname}||${mode}`;
-  await idbPut(IDB_SCORES, key, { s: +s, o: +o, d: +d });
-}
-
-function defaultScores(text) {
-  let s = 6, o = 5, d = 5;
-  if (/延迟|延期|失败|丢失|损坏|拒绝|阻力大|停滞/.test(text)) s = 8;
-  else if (/困难|不足|冲突|走样|低于|不清晰/.test(text)) s = 7;
-  if (/可能|频繁|容易|高|大/.test(text)) o = 6;
-  else if (/低|小|偶尔/.test(text)) o = 4;
-  if (/不清晰|模糊|不当|走样|难以/.test(text)) d = 6;
-  return { s, o, d };
-}
-
-function rpnClass(r) { return r >= 200 ? 'rpn-h' : r >= 100 ? 'rpn-m' : 'rpn-l'; }
-
-// ================================================================
-// EXCEL PARSING UTILITIES
-// ================================================================
-function cellStr(v) {
-  if (v === null || v === undefined) return '';
-  const s = String(v).trim();
-  return s === 'null' ? '' : s;
-}
-
-function parseExcelDate(val) {
-  if (val === null || val === undefined || val === '') return '';
-  if (val instanceof Date) return isNaN(val) ? '' : val.toISOString().slice(0, 10);
-  if (typeof val === 'string') {
-    if (/随时|持续|按季度/.test(val)) return '';
-    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
-    const n = parseFloat(val);
-    if (!isNaN(n) && n > 40000 && n < 60000) return excelSerialToDate(n);
-    return '';
-  }
-  if (typeof val === 'number' && val > 40000 && val < 60000) return excelSerialToDate(val);
-  return '';
-}
-
-function excelSerialToDate(n) {
-  const d = new Date(Math.round((n - 25569) * 86400 * 1000));
-  return d.toISOString().slice(0, 10);
-}
-
-function mapTaskStatus(s) {
-  if (!s) return 'pending';
-  if (/已完成/.test(s)) return 'done';
-  if (/进行中|按期|进行/.test(s)) return 'in-progress';
-  return 'pending';
-}
-
-// ================================================================
-// EXCEL PARSE — main function
-// ================================================================
-function parseXlsx(buffer, filename) {
-  let wb;
-  try {
-    wb = XLSX.read(buffer, { type: 'array', cellDates: true });
-  } catch(e) {
-    console.warn('XLSX read failed:', filename, e);
-    return null;
-  }
-
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  if (!ws) return null;
-
-  // sheet_to_json with header:1 gives 0-indexed 2D array
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
-  if (rows.length < 5) return null;
-
-  // Row 0 (R1): project name at col B (index 1)
-  const projectName = cellStr(rows[0]?.[1]) || filename.replace(/\.xlsx?$/i, '');
-
-  // Scan rows 3-5 (R4-R6) for column headers
-  function findCol(name) {
-    for (let r = 3; r <= 6 && r < rows.length; r++) {
-      const row = rows[r] || [];
-      for (let c = 0; c < row.length; c++) {
-        if (cellStr(row[c]) === name) return c;
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>项目跟进助手</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
       }
-    }
-    return -1;
-  }
 
-  const startIdx = findCol('开始时间');
-  const COL = {
-    phase: 1, task: 2,
-    dept:     findCol('负责部门'),
-    owner:    findCol('负责人'),
-    members:  findCol('小组成员'),
-    startDate: startIdx >= 0 ? startIdx : 6,
-    endDate:   startIdx >= 0 ? startIdx + 1 : findCol('结束时间') >= 0 ? findCol('结束时间') : 7,
-    progress:  findCol('工作进度'),
-    status:    findCol('完成状态'),
-    desc:      findCol('工作进度情况描述'),
-    report:    findCol('阶段性完成情况汇报'),
-    risk:      findCol('风险'),
-    measure:   findCol('解决措施'),
-    resource:  findCol('资源需求'),
-  };
-
-  // Fill defaults for undetected columns
-  if (COL.dept     < 0) COL.dept = 3;
-  if (COL.owner    < 0) COL.owner = 4;
-  if (COL.progress < 0) COL.progress = COL.endDate + 1;
-  if (COL.status   < 0) COL.status = COL.progress + 1;
-  if (COL.desc     < 0) COL.desc = COL.status + 1;
-  if (COL.report   < 0) COL.report = COL.desc + 1;
-  if (COL.risk     < 0) COL.risk = COL.report + 1;
-  if (COL.measure  < 0) COL.measure = COL.risk + 1;
-
-  const milestones = [], tasks = [], risks = [];
-  let currentPhase = '';
-
-  for (let i = 5; i < rows.length; i++) {
-    const row = rows[i];
-    if (!row || !row.some(c => c !== null && String(c).trim())) continue;
-
-    const phaseVal = cellStr(row[1]); // col B
-    const taskVal  = cellStr(row[2]); // col C
-
-    if (phaseVal && !taskVal) {
-      currentPhase = phaseVal;
-      const shortName = phaseVal.replace(/^[一二三四五六七八九十]+[、.。，,]\s*/, '').slice(0, 22);
-      milestones.push({ name: shortName, fullName: phaseVal, status: 'pending' });
-      continue;
-    }
-    if (!taskVal) continue;
-
-    const owner      = cellStr(row[COL.owner]);
-    const dept       = cellStr(row[COL.dept]);
-    const startDate  = parseExcelDate(row[COL.startDate]);
-    const endDate    = parseExcelDate(row[COL.endDate]);
-    const progressRaw= row[COL.progress];
-    const statusRaw  = cellStr(row[COL.status]);
-    const desc       = cellStr(row[COL.desc]);
-    const report     = cellStr(row[COL.report]);
-    const riskText   = cellStr(row[COL.risk]);
-    const measureText= cellStr(row[COL.measure]);
-
-    let progress = 0;
-    if (progressRaw !== null && progressRaw !== '') {
-      const p = parseFloat(String(progressRaw));
-      if (!isNaN(p)) progress = p <= 1 ? Math.round(p * 100) : Math.round(p);
-    }
-    const taskStatus = mapTaskStatus(statusRaw);
-    if (taskStatus === 'done') progress = 100;
-
-    tasks.push({ phase: currentPhase, name: taskVal, owner, dept, start: startDate, end: endDate, progress, status: taskStatus, desc, report });
-
-    if (riskText && riskText !== '/' && riskText.length > 1) {
-      risks.push({ mode: riskText, effect: taskVal.slice(0, 35), measure: measureText, owner: owner || dept, due: endDate, phase: currentPhase });
-    }
-  }
-
-  // Update milestone statuses from tasks
-  milestones.forEach(m => {
-    const mTasks = tasks.filter(t => t.phase === m.fullName);
-    if (!mTasks.length) return;
-    if (mTasks.every(t => t.status === 'done')) m.status = 'done';
-    else if (mTasks.some(t => t.status === 'in-progress' || t.status === 'done')) m.status = 'current';
-  });
-
-  // Overall progress (average of task progress values)
-  const prog = tasks.length ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length) : 0;
-
-  // Project health
-  const hasOverdue = tasks.some(t => t.status !== 'done' && t.end && new Date(t.end) < TODAY);
-  const projectStatus = hasOverdue ? 'delayed' : (risks.length > 0 ? 'at_risk' : 'healthy');
-
-  // Primary owner (most frequent)
-  const ownerCounts = {};
-  tasks.forEach(t => { if (t.owner) ownerCounts[t.owner] = (ownerCounts[t.owner] || 0) + 1; });
-  const mainOwner = Object.entries(ownerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || '';
-
-  // Project-level dates
-  const sortedEnds   = tasks.filter(t => t.end).map(t => t.end).sort();
-  const sortedStarts = tasks.filter(t => t.start).map(t => t.start).sort();
-
-  // Latest meaningful update
-  const latestReport = [...tasks].reverse().find(t => t.report && t.report !== '待汇报' && t.report !== '/')?.report || '';
-  const latestDesc   = [...tasks].reverse().find(t => t.desc && !['正常', '/', '按期进行中', '未开始', '已完成'].includes(t.desc))?.desc || '';
-  const update = latestReport || latestDesc || '暂无进展更新';
-
-  // Upcoming actions (pending/in-progress tasks with end dates)
-  const actions = tasks
-    .filter(t => t.status !== 'done' && t.end)
-    .sort((a, b) => new Date(a.end) - new Date(b.end))
-    .slice(0, 6)
-    .map(t => ({
-      t: t.name.slice(0, 40),
-      o: t.owner || t.dept || '待定',
-      due: t.end,
-      p: daysUntilDate(t.end) < 0 ? 'high' : daysUntilDate(t.end) <= 14 ? 'high' : 'medium',
-      s: t.status === 'in-progress' ? 'in_progress' : 'pending',
-    }));
-
-  return {
-    id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    code: '',
-    name: projectName,
-    owner: mainOwner,
-    dept: tasks.find(t => t.dept)?.dept || '',
-    start: sortedStarts[0] || '',
-    due:   sortedEnds[sortedEnds.length - 1] || '',
-    prog,
-    status: projectStatus,
-    update,
-    milestones: milestones.slice(0, 6),
-    tasks,
-    risks,
-    actions,
-    filename,
-  };
-}
-
-// ================================================================
-// GLOBAL STATE
-// ================================================================
-let currentData = { projects: [], folderName: '', lastSync: '', files: [] };
-
-function loadData() {
-  try {
-    const raw = localStorage.getItem(LS_DATA);
-    if (raw) currentData = JSON.parse(raw);
-  } catch(e) {}
-}
-
-function saveData() {
-  try {
-    localStorage.setItem(LS_DATA, JSON.stringify(currentData));
-  } catch(e) { showToast('数据保存失败（存储空间不足）'); }
-}
-
-function clearData(newFolderName) {
-  currentData = { projects: [], folderName: newFolderName || '', lastSync: '', files: [] };
-  localStorage.removeItem(LS_DATA);
-  updateFolderUI(newFolderName || '未配置文件夹');
-  renderAll();
-}
-
-// ================================================================
-// SYNC — File System Access API
-// ================================================================
-async function pickFolder() {
-  if (!window.showDirectoryPicker) {
-    document.getElementById('no-fs-api').style.display = 'block';
-    showToast('请使用 Chrome 或 Edge 浏览器打开本工具');
-    return;
-  }
-  try {
-    const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-    // If folder changed, clear previous data immediately
-    if (dirHandle.name !== currentData.folderName) {
-      clearData(dirHandle.name);
-    }
-    await idbPut(IDB_STORE, 'dirHandle', dirHandle);
-    showToast('文件夹已选择：' + dirHandle.name + '，点击"同步数据"开始读取');
-  } catch(e) {
-    if (e.name !== 'AbortError') showToast('选择失败：' + e.message);
-  }
-}
-
-async function syncFiles() {
-  if (!window.showDirectoryPicker) {
-    document.getElementById('no-fs-api').style.display = 'block';
-    showToast('请使用 Chrome 93+ 或 Edge 93+ 浏览器');
-    return;
-  }
-
-  // Try to get stored handle first
-  let dirHandle = await idbGet(IDB_STORE, 'dirHandle');
-  if (dirHandle) {
-    try {
-      const perm = await dirHandle.queryPermission({ mode: 'read' });
-      if (perm !== 'granted') {
-        const req = await dirHandle.requestPermission({ mode: 'read' });
-        if (req !== 'granted') dirHandle = null;
+      :root {
+        --bg: #0a0e1a;
+        --bg-2: #0d1220;
+        --bg-3: #131827;
+        --bg-card: rgba(255, 255, 255, 0.035);
+        --bg-hover: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.08);
+        --border-s: rgba(255, 255, 255, 0.14);
+        --text: #dde3ee;
+        --text-2: #7e8b9e;
+        --text-3: #414d5e;
+        --accent: #4f6ef7;
+        --accent-bg: rgba(79, 110, 247, 0.1);
+        --success: #3ecf8e;
+        --success-bg: rgba(62, 207, 142, 0.1);
+        --warn: #f5a623;
+        --warn-bg: rgba(245, 166, 35, 0.1);
+        --danger: #f04d4d;
+        --danger-bg: rgba(240, 77, 77, 0.1);
+        --sidebar-w: 220px;
+        --topbar-h: 54px;
+        --r: 10px;
+        --r-sm: 6px;
       }
-    } catch(e) { dirHandle = null; }
-  }
 
-  // If no valid handle, ask user to pick
-  if (!dirHandle) {
-    try {
-      dirHandle = await window.showDirectoryPicker({ mode: 'read' });
-      await idbPut(IDB_STORE, 'dirHandle', dirHandle);
-    } catch(e) {
-      if (e.name !== 'AbortError') showToast('选择文件夹失败');
-      return;
-    }
-  }
+      html,
+      body {
+        height: 100%;
+        font-family:
+          -apple-system, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB",
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+        overflow: hidden;
+      }
 
-  // If folder changed, clear previous data before loading new one
-  if (dirHandle.name !== currentData.folderName) {
-    clearData(dirHandle.name);
-  }
+      .app {
+        display: grid;
+        grid-template-rows: var(--topbar-h) 1fr;
+        grid-template-columns: var(--sidebar-w) 1fr;
+        height: 100vh;
+      }
 
-  setSyncLoading(true);
-  showToast('正在读取 Excel 文件...');
+      /* === TOPBAR === */
+      .topbar {
+        grid-column: 1/-1;
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        background: var(--bg-2);
+        border-bottom: 1px solid var(--border);
+        gap: 12px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-weight: 600;
+        font-size: 15px;
+        color: var(--text);
+        text-decoration: none;
+        flex-shrink: 0;
+        user-select: none;
+      }
+      .logo-mark {
+        width: 28px;
+        height: 28px;
+        background: var(--accent);
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .topbar-source {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 5px 12px;
+        font-size: 12px;
+        color: var(--text-2);
+        cursor: pointer;
+        flex: 1;
+        max-width: 420px;
+        transition: border-color 0.2s;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .topbar-source:hover {
+        border-color: var(--border-s);
+        color: var(--text);
+      }
+      .topbar-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: var(--r-sm);
+        font-size: 13px;
+        cursor: pointer;
+        border: none;
+        font-family: inherit;
+        transition: all 0.15s;
+        white-space: nowrap;
+      }
+      .btn-primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: #3a5af0;
+      }
+      .btn-ghost {
+        background: transparent;
+        color: var(--text-2);
+        border: 1px solid var(--border);
+      }
+      .btn-ghost:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .btn-warn {
+        background: var(--warn);
+        color: #fff;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .icon-btn {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        background: transparent;
+        border: none;
+        color: var(--text-2);
+        transition: all 0.15s;
+        position: relative;
+      }
+      .icon-btn:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .notif-dot {
+        position: absolute;
+        top: 5px;
+        right: 5px;
+        width: 6px;
+        height: 6px;
+        background: var(--danger);
+        border-radius: 50%;
+        border: 1.5px solid var(--bg-2);
+      }
+      .avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: #fff;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
 
-  const projects = [];
-  const filesMeta = [];
+      /* === SIDEBAR === */
+      .sidebar {
+        background: var(--bg-2);
+        border-right: 1px solid var(--border);
+        padding: 14px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        overflow-y: auto;
+      }
+      .nav-sec {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--text-3);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 12px 8px 4px;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        color: var(--text-2);
+        font-size: 13px;
+        transition: all 0.15s;
+        user-select: none;
+      }
+      .nav-item:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .nav-item.active {
+        background: var(--accent-bg);
+        color: var(--accent);
+      }
+      .nav-item svg {
+        flex-shrink: 0;
+        opacity: 0.7;
+      }
+      .nav-item.active svg {
+        opacity: 1;
+      }
+      .nav-badge {
+        margin-left: auto;
+        font-size: 11px;
+        background: var(--bg-hover);
+        color: var(--text-2);
+        padding: 1px 6px;
+        border-radius: 10px;
+      }
+      .nav-item.active .nav-badge {
+        background: var(--accent-bg);
+        color: var(--accent);
+      }
 
-  try {
-    for await (const [name, entry] of dirHandle.entries()) {
-      if (entry.kind !== 'file') continue;
-      if (!name.toLowerCase().endsWith('.xlsx')) continue;
-      if (name.startsWith('~$')) continue; // skip temp files
+      /* === MAIN === */
+      .main {
+        overflow-y: auto;
+        overflow-x: hidden;
+        background: var(--bg);
+      }
+      .view {
+        display: none;
+        padding: 24px 28px;
+      }
+      .view.active {
+        display: block;
+      }
 
-      try {
-        const file = await entry.getFile();
-        const buffer = await file.arrayBuffer();
-        const project = parseXlsx(buffer, name);
-        if (project) {
-          projects.push(project);
-          filesMeta.push({
-            name,
-            size: Math.round(file.size / 1024),
-            lastModified: new Date(file.lastModified).toLocaleString('zh-CN'),
-            tasks: project.tasks.length,
-            risks: project.risks.length,
-          });
+      /* === PAGE HEADER === */
+      .page-hd {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 24px;
+      }
+      .page-hd h1 {
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+      .page-hd p {
+        font-size: 13px;
+        color: var(--text-2);
+        margin-top: 3px;
+      }
+
+      /* === KPI === */
+      .kpi-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        margin-bottom: 26px;
+      }
+      .kpi-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 16px 18px;
+        transition: border-color 0.2s;
+      }
+      .kpi-card:hover {
+        border-color: var(--border-s);
+      }
+      .kpi-label {
+        font-size: 12px;
+        color: var(--text-2);
+        margin-bottom: 8px;
+      }
+      .kpi-val {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1;
+        margin-bottom: 5px;
+      }
+      .kpi-sub {
+        font-size: 12px;
+        color: var(--text-2);
+      }
+      .kpi-bar {
+        height: 3px;
+        background: var(--border);
+        border-radius: 2px;
+        margin-top: 10px;
+        overflow: hidden;
+      }
+      .kpi-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.7s ease;
+      }
+
+      /* === SECTION === */
+      .sec-hd {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      .sec-title {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .sec-sub {
+        font-size: 12px;
+        color: var(--text-2);
+        margin-left: 8px;
+      }
+
+      /* === PROJECT CARDS === */
+      .proj-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+        gap: 12px;
+      }
+      .proj-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 18px;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .proj-card:hover {
+        border-color: var(--border-s);
+        background: var(--bg-hover);
+      }
+      .proj-card.sel {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+      }
+      .proj-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .proj-meta {
+        flex: 1;
+        padding-right: 12px;
+      }
+      .proj-code {
+        font-size: 11px;
+        color: var(--text-3);
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+      .proj-name {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.4;
+        margin-bottom: 7px;
+      }
+      .owner-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .mini-av {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--accent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 9px;
+        font-weight: 600;
+        color: #fff;
+        flex-shrink: 0;
+      }
+      .ring-wrap {
+        flex-shrink: 0;
+        position: relative;
+        width: 58px;
+        height: 58px;
+      }
+      .ring-svg {
+        transform: rotate(-90deg);
+      }
+      .ring-track {
+        stroke: var(--border);
+        fill: none;
+      }
+      .ring-fill {
+        fill: none;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 0.9s ease;
+      }
+      .ring-txt {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 12px;
+        font-weight: 700;
+        line-height: 1;
+      }
+      .stag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+      }
+      .sdot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+      }
+      .stag-healthy {
+        background: var(--success-bg);
+        color: var(--success);
+      }
+      .stag-at_risk {
+        background: var(--warn-bg);
+        color: var(--warn);
+      }
+      .stag-delayed {
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+      .proj-update {
+        font-size: 12px;
+        color: var(--text-2);
+        line-height: 1.5;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+      }
+      .proj-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 10px;
+      }
+
+      /* === EMPTY STATE === */
+      .empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px 24px;
+        text-align: center;
+      }
+      .empty-icon {
+        width: 64px;
+        height: 64px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 20px;
+      }
+      .empty-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+      .empty-sub {
+        font-size: 13px;
+        color: var(--text-2);
+        margin-bottom: 24px;
+        max-width: 340px;
+        line-height: 1.6;
+      }
+
+      /* === HEATMAP === */
+      .heatmap-box {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        padding: 20px 24px;
+        margin-top: 24px;
+        overflow-x: auto;
+      }
+      .hmap-tbl {
+        border-collapse: separate;
+        border-spacing: 3px;
+      }
+      .hmap-cell {
+        width: 42px;
+        height: 34px;
+        border-radius: 4px;
+        text-align: center;
+        vertical-align: middle;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: default;
+      }
+      .hmap-lbl {
+        font-size: 11px;
+        color: var(--text-2);
+        padding: 4px 10px;
+        white-space: nowrap;
+      }
+      .hmap-lbl-col {
+        font-size: 10px;
+        color: var(--text-3);
+        text-align: center;
+        padding: 4px 3px;
+        writing-mode: vertical-rl;
+      }
+
+      /* === DIVIDER === */
+      .divider {
+        height: 1px;
+        background: var(--border);
+        margin: 22px 0;
+      }
+
+      /* === DRAWER === */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 90;
+        display: none;
+        opacity: 0;
+        transition: opacity 0.25s;
+      }
+      .overlay.open {
+        display: block;
+        opacity: 1;
+      }
+      .drawer {
+        position: fixed;
+        top: var(--topbar-h);
+        right: 0;
+        bottom: 0;
+        width: 500px;
+        background: var(--bg-2);
+        border-left: 1px solid var(--border);
+        z-index: 100;
+        transform: translateX(100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .drawer.open {
+        transform: translateX(0);
+      }
+      .drawer-hd {
+        padding: 20px 22px 16px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+        position: relative;
+      }
+      .drawer-close {
+        position: absolute;
+        top: 14px;
+        right: 16px;
+        cursor: pointer;
+        width: 28px;
+        height: 28px;
+        border-radius: var(--r-sm);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-2);
+        border: none;
+        background: transparent;
+        transition: background 0.15s;
+      }
+      .drawer-close:hover {
+        background: var(--bg-hover);
+        color: var(--text);
+      }
+      .drawer-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px 22px;
+      }
+
+      /* === TABS === */
+      .tabs {
+        display: flex;
+        gap: 2px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 3px;
+        margin-bottom: 20px;
+      }
+      .tab {
+        flex: 1;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 13px;
+        text-align: center;
+        color: var(--text-2);
+        transition: all 0.15s;
+        user-select: none;
+      }
+      .tab.active {
+        background: var(--bg-3);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+
+      /* === TIMELINE === */
+      .tl {
+        display: flex;
+        gap: 0;
+        overflow-x: auto;
+        padding-bottom: 6px;
+        margin-bottom: 20px;
+      }
+      .tl-item {
+        flex: 1;
+        min-width: 80px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        position: relative;
+      }
+      .tl-item:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        top: 9px;
+        left: calc(50% + 10px);
+        right: calc(-50% + 10px);
+        height: 2px;
+        background: var(--border);
+      }
+      .tl-item.done:not(:last-child)::after {
+        background: var(--success);
+      }
+      .tl-dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+        background: var(--bg-2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        z-index: 1;
+        margin-bottom: 8px;
+        flex-shrink: 0;
+      }
+      .tl-item.done .tl-dot {
+        border-color: var(--success);
+        background: var(--success);
+      }
+      .tl-item.current .tl-dot {
+        border-color: var(--accent);
+        background: var(--accent);
+      }
+      .tl-name {
+        font-size: 11px;
+        color: var(--text-2);
+        text-align: center;
+        line-height: 1.3;
+      }
+      .tl-date {
+        font-size: 10px;
+        color: var(--text-3);
+        text-align: center;
+        margin-top: 2px;
+      }
+
+      /* === TASK === */
+      .task-grp {
+        margin-bottom: 16px;
+      }
+      .task-grp-hd {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-2);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .task-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: var(--r-sm);
+        margin-bottom: 3px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+      }
+      .task-chk {
+        width: 15px;
+        height: 15px;
+        border-radius: 4px;
+        border: 1.5px solid var(--border);
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .task-chk.done {
+        border-color: var(--success);
+        background: var(--success);
+      }
+      .task-chk.cur {
+        border-color: var(--accent);
+      }
+      .task-name {
+        flex: 1;
+        font-size: 13px;
+      }
+      .task-name.struck {
+        color: var(--text-3);
+        text-decoration: line-through;
+      }
+
+      /* === RISK PREVIEW === */
+      .risk-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: var(--r-sm);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        margin-bottom: 5px;
+        cursor: pointer;
+        transition: border-color 0.15s;
+      }
+      .risk-row:hover {
+        border-color: var(--border-s);
+      }
+      .rpn-pill {
+        font-size: 12px;
+        font-weight: 700;
+        min-width: 38px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        flex-shrink: 0;
+      }
+      .rpn-h {
+        background: var(--danger-bg);
+        color: var(--danger);
+      }
+      .rpn-m {
+        background: var(--warn-bg);
+        color: var(--warn);
+      }
+      .rpn-l {
+        background: var(--success-bg);
+        color: var(--success);
+      }
+      .risk-measure {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 9px 12px;
+        margin-bottom: 8px;
+        margin-top: -3px;
+        font-size: 12px;
+        color: var(--text-2);
+      }
+
+      /* === ACTION === */
+      .action-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 11px 12px;
+        border-radius: var(--r-sm);
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        margin-bottom: 6px;
+      }
+      .pri-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        margin-top: 5px;
+      }
+      .pri-high {
+        background: var(--danger);
+      }
+      .pri-medium {
+        background: var(--warn);
+      }
+      .pri-low {
+        background: var(--success);
+      }
+
+      /* === FMEA === */
+      .fmea-filter-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+      }
+      .sel {
+        padding: 6px 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--text);
+        font-size: 13px;
+        font-family: inherit;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .sel:focus {
+        border-color: var(--accent);
+      }
+      .fmea-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-bottom: 22px;
+      }
+      .tbl-wrap {
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      thead tr {
+        background: var(--bg-3);
+      }
+      th {
+        padding: 10px 12px;
+        text-align: left;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-2);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      td {
+        padding: 10px 12px;
+        font-size: 13px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      tbody tr:hover {
+        background: var(--bg-hover);
+      }
+      .score-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 24px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 700;
+        background: rgba(0, 0, 0, 0.25);
+      }
+      .score-inp {
+        width: 42px;
+        padding: 3px 6px;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        color: var(--text);
+        font-size: 12px;
+        font-weight: 700;
+        font-family: inherit;
+        text-align: center;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      .score-inp:focus {
+        border-color: var(--accent);
+      }
+
+      /* === KANBAN === */
+      .kanban {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .kn-col {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        overflow: hidden;
+      }
+      .kn-col-hd {
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .kn-col-title {
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .kn-col-cnt {
+        font-size: 11px;
+        color: var(--text-2);
+        background: var(--bg-hover);
+        padding: 1px 7px;
+        border-radius: 10px;
+      }
+      .kn-col-body {
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 160px;
+      }
+      .kn-card {
+        background: var(--bg-2);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        padding: 12px;
+        cursor: pointer;
+        transition: border-color 0.15s;
+      }
+      .kn-card:hover {
+        border-color: var(--border-s);
+      }
+      .kn-title {
+        font-size: 13px;
+        font-weight: 500;
+        line-height: 1.4;
+        margin-bottom: 9px;
+      }
+      .kn-foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .proj-tag {
+        font-size: 10px;
+        padding: 2px 6px;
+        border-radius: 3px;
+        background: var(--accent-bg);
+        color: var(--accent);
+        font-weight: 500;
+      }
+      .due-txt {
+        font-size: 11px;
+        color: var(--text-2);
+      }
+      .due-soon {
+        color: var(--warn);
+      }
+      .due-over {
+        color: var(--danger);
+      }
+
+      /* === IMPORT === */
+      .import-drop {
+        border: 2px dashed var(--border);
+        border-radius: var(--r);
+        padding: 44px 24px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        margin-bottom: 22px;
+      }
+      .import-drop:hover {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+      }
+      .drop-icon {
+        width: 48px;
+        height: 48px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 14px;
+      }
+      .path-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+        align-items: center;
+      }
+      .path-display {
+        flex: 1;
+        padding: 8px 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--r-sm);
+        color: var(--text-2);
+        font-size: 13px;
+        font-family: monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .file-list {
+        border: 1px solid var(--border);
+        border-radius: var(--r);
+        overflow: hidden;
+      }
+      .file-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+      .file-row:last-child {
+        border-bottom: none;
+      }
+      .file-ico {
+        width: 32px;
+        height: 32px;
+        border-radius: 7px;
+        background: var(--success-bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .file-name {
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .file-meta {
+        font-size: 11px;
+        color: var(--text-2);
+        margin-top: 2px;
+      }
+      .map-grid {
+        display: grid;
+        grid-template-columns: 1fr 20px 1fr;
+        gap: 7px 12px;
+        align-items: center;
+      }
+      .map-src {
+        padding: 6px 12px;
+        border-radius: var(--r-sm);
+        font-size: 12px;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        color: var(--text-2);
+      }
+      .map-dst {
+        padding: 6px 12px;
+        border-radius: var(--r-sm);
+        font-size: 12px;
+        background: var(--accent-bg);
+        border: 1px solid rgba(79, 110, 247, 0.18);
+        color: var(--accent);
+      }
+      .map-arrow {
+        color: var(--text-3);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      /* === CHART === */
+      .chart-box {
+        position: relative;
+        height: 260px;
+      }
+
+      /* === ALERT BAR === */
+      .alert-bar {
+        background: rgba(245, 166, 35, 0.07);
+        border: 1px solid rgba(245, 166, 35, 0.18);
+        border-radius: var(--r);
+        padding: 14px 18px;
+        margin-bottom: 20px;
+      }
+
+      /* === SCROLLBAR === */
+      ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--border-s);
+      }
+
+      /* === UTILS === */
+      .flex {
+        display: flex;
+      }
+      .items-c {
+        align-items: center;
+      }
+      .gap4 {
+        gap: 4px;
+      }
+      .gap6 {
+        gap: 6px;
+      }
+      .gap8 {
+        gap: 8px;
+      }
+      .gap12 {
+        gap: 12px;
+      }
+      .mt4 {
+        margin-top: 4px;
+      }
+      .mt8 {
+        margin-top: 8px;
+      }
+      .mt12 {
+        margin-top: 12px;
+      }
+      .mt16 {
+        margin-top: 16px;
+      }
+      .mt20 {
+        margin-top: 20px;
+      }
+      .mb8 {
+        margin-bottom: 8px;
+      }
+      .mb12 {
+        margin-bottom: 12px;
+      }
+      .mb16 {
+        margin-bottom: 16px;
+      }
+      .fw6 {
+        font-weight: 600;
+      }
+      .txt-xs {
+        font-size: 11px;
+      }
+      .txt-sm {
+        font-size: 12px;
+      }
+      .c-accent {
+        color: var(--accent);
+      }
+      .c-success {
+        color: var(--success);
+      }
+      .c-warn {
+        color: var(--warn);
+      }
+      .c-danger {
+        color: var(--danger);
+      }
+      .c-muted {
+        color: var(--text-2);
+      }
+      .c-dim {
+        color: var(--text-3);
+      }
+      [data-tip] {
+        position: relative;
+      }
+      [data-tip]:hover::after {
+        content: attr(data-tip);
+        position: absolute;
+        bottom: calc(100% + 5px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        color: var(--text);
+        font-size: 11px;
+        padding: 4px 9px;
+        border-radius: 5px;
+        white-space: nowrap;
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* === SYNC SPINNER === */
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
         }
-      } catch(e) {
-        console.error('Parse error:', name, e);
-        showToast(`解析 ${name} 失败，已跳过`);
       }
-    }
-  } catch(e) {
-    showToast('读取文件夹失败：' + e.message);
-    setSyncLoading(false);
-    return;
-  }
+      .spinning {
+        animation: spin 0.8s linear infinite;
+      }
 
-  if (!projects.length) {
-    showToast('未找到有效的 Excel 项目文件（需符合标准模板）');
-    setSyncLoading(false);
-    return;
-  }
+      /* === TOGGLE SWITCH === */
+      .toggle {
+        position: relative;
+        width: 36px;
+        height: 20px;
+        flex-shrink: 0;
+        cursor: pointer;
+        display: inline-block;
+      }
+      .toggle input {
+        display: none;
+      }
+      .toggle-track {
+        position: absolute;
+        inset: 0;
+        background: var(--border-s);
+        border-radius: 10px;
+        transition: background 0.2s;
+      }
+      .toggle input:checked + .toggle-track {
+        background: var(--accent);
+      }
+      .toggle-thumb {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        background: #fff;
+        border-radius: 50%;
+        transition: left 0.2s;
+        pointer-events: none;
+      }
+      .toggle input:checked ~ .toggle-thumb {
+        left: 18px;
+      }
 
-  // Sort by filename, assign codes
-  projects.sort((a, b) => a.filename.localeCompare(b.filename, 'zh'));
-  projects.forEach((p, i) => p.code = `P${String(i + 1).padStart(2, '0')}`);
+      /* === AUTOSYNC PULSE === */
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.35;
+        }
+      }
+      .pulse {
+        animation: pulse 2s ease-in-out infinite;
+      }
 
-  currentData = {
-    projects,
-    folderName: dirHandle.name,
-    lastSync: new Date().toISOString(),
-    files: filesMeta,
-  };
-  saveData();
-  updateFolderUI(dirHandle.name);
-  renderAll();
-  setSyncLoading(false);
-  showToast(`✓ 同步完成！已加载 ${projects.length} 个项目、${projects.reduce((s,p)=>s+p.risks.length,0)} 条风险`);
-}
+      /* === PROGRESS MINI BAR === */
+      .mini-bar {
+        height: 3px;
+        background: var(--border);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 6px;
+      }
+      .mini-bar-fill {
+        height: 100%;
+        border-radius: 2px;
+        transition: width 0.6s;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <!-- TOPBAR -->
+      <header class="topbar">
+        <div class="logo">
+          <div class="logo-mark">
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <rect
+                x="1"
+                y="1"
+                width="5.5"
+                height="5.5"
+                rx="1.5"
+                fill="white"
+              />
+              <rect
+                x="8.5"
+                y="1"
+                width="5.5"
+                height="5.5"
+                rx="1.5"
+                fill="white"
+                opacity=".7"
+              />
+              <rect
+                x="1"
+                y="8.5"
+                width="5.5"
+                height="5.5"
+                rx="1.5"
+                fill="white"
+                opacity=".7"
+              />
+              <rect
+                x="8.5"
+                y="8.5"
+                width="5.5"
+                height="5.5"
+                rx="1.5"
+                fill="white"
+                opacity=".4"
+              />
+            </svg>
+          </div>
+          项目跟进助手
+        </div>
+        <div class="topbar-source" onclick="switchView('import')">
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 12 12"
+            fill="currentColor"
+            opacity=".6"
+          >
+            <path
+              d="M1.5 3a1 1 0 0 1 1-1h2.17a1 1 0 0 1 .71.29l.83.83A1 1 0 0 0 6.91 3.4H9.5a1 1 0 0 1 1 1V9a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V3z"
+            />
+          </svg>
+          <span id="topbar-folder">未配置文件夹</span>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-primary" id="sync-btn" onclick="syncFiles()">
+            <svg
+              id="sync-icon"
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            >
+              <path d="M11 6A5 5 0 1 1 1 6m0-2v2h2" />
+            </svg>
+            同步数据
+          </button>
+          <div class="avatar" data-tip="管理员">K</div>
+        </div>
+      </header>
 
-function setSyncLoading(on) {
-  const icon = document.getElementById('sync-icon');
-  const btn  = document.getElementById('sync-btn');
-  if (on) { icon.classList.add('spinning'); btn.disabled = true; }
-  else    { icon.classList.remove('spinning'); btn.disabled = false; }
-}
+      <!-- SIDEBAR -->
+      <aside class="sidebar">
+        <div class="nav-sec">主菜单</div>
+        <div
+          class="nav-item active"
+          id="nav-dashboard"
+          onclick="switchView('dashboard')"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <rect x="1" y="1" width="5" height="5" rx="1" />
+            <rect x="8" y="1" width="5" height="5" rx="1" />
+            <rect x="1" y="8" width="5" height="5" rx="1" />
+            <rect x="8" y="8" width="5" height="5" rx="1" />
+          </svg>
+          项目总览
+          <span class="nav-badge" id="nb-proj">0</span>
+        </div>
+        <div class="nav-item" id="nav-fmea" onclick="switchView('fmea')">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path d="M7 1.5 1.5 12.5h11L7 1.5z" stroke-linejoin="round" />
+            <path d="M7 6v3.5" stroke-linecap="round" />
+            <circle cx="7" cy="11" r=".5" fill="currentColor" stroke="none" />
+          </svg>
+          风险分析 (FMEA)
+          <span class="nav-badge" id="nb-risk">0</span>
+        </div>
+        <div class="nav-item" id="nav-actions" onclick="switchView('actions')">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <rect x="1" y="1" width="12" height="12" rx="2" />
+            <path d="M4 4h6M4 7h5M4 10h3" stroke-linecap="round" />
+          </svg>
+          跟进中心
+          <span class="nav-badge" id="nb-action">0</span>
+        </div>
+        <div class="nav-sec" style="margin-top: 8px">配置</div>
+        <div class="nav-item" id="nav-import" onclick="switchView('import')">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 14 14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              d="M2 4a1 1 0 0 1 1-1h2l1.5 1.5H11a1 1 0 0 1 1 1V11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4z"
+            />
+          </svg>
+          数据导入
+        </div>
+      </aside>
 
-function updateFolderUI(name) {
-  document.getElementById('topbar-folder').textContent = name;
-  document.getElementById('folder-display').textContent = name;
-}
+      <!-- MAIN -->
+      <main class="main">
+        <!-- DASHBOARD -->
+        <div class="view active" id="view-dashboard">
+          <div class="page-hd">
+            <div>
+              <h1>项目总览</h1>
+              <p id="dash-subtitle">加载中...</p>
+            </div>
+            <div class="flex items-c gap8">
+              <button class="btn btn-ghost" onclick="syncFiles()">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 12 12"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                >
+                  <path d="M11 6A5 5 0 1 1 1 6m0-2v2h2" />
+                </svg>
+                刷新
+              </button>
+            </div>
+          </div>
+          <div class="kpi-row" id="kpi-row"></div>
+          <div class="sec-hd">
+            <div class="flex items-c">
+              <span class="sec-title">重点项目</span
+              ><span class="sec-sub">点击项目卡片查看详情</span>
+            </div>
+          </div>
+          <div id="proj-grid"></div>
+          <div id="heatmap-section" style="display: none">
+            <div class="divider"></div>
+            <div class="sec-hd">
+              <span class="sec-title">风险全景热力矩阵</span
+              ><span class="sec-sub txt-xs c-muted"
+                >横轴=项目，纵轴=RPN等级，数字=风险条数</span
+              >
+            </div>
+            <div class="heatmap-box" id="heatmap-box"></div>
+          </div>
+        </div>
 
-// ================================================================
-// UTILITIES
-// ================================================================
-const STATUS_LABEL = { healthy: '正常推进', at_risk: '存在风险', delayed: '延期预警' };
-const STATUS_COLOR = { healthy: 'var(--success)', at_risk: 'var(--warn)', delayed: 'var(--danger)' };
-const PRI_LABEL    = { high: '高', medium: '中', low: '低' };
+        <!-- FMEA -->
+        <div class="view" id="view-fmea">
+          <div class="page-hd">
+            <div>
+              <h1>FMEA 风险分析</h1>
+              <p>失效模式与影响分析 · 点击 S/O/D 评分可编辑并保存</p>
+            </div>
+            <div class="flex gap8">
+              <button class="btn btn-ghost" onclick="exportFMEA()">
+                导出 CSV
+              </button>
+              <button class="btn btn-primary" onclick="resetFMEAScores()">
+                重置评分
+              </button>
+            </div>
+          </div>
+          <div
+            style="
+              background: var(--accent-bg);
+              border: 1px solid rgba(79, 110, 247, 0.18);
+              border-radius: var(--r);
+              padding: 14px 18px;
+              margin-bottom: 20px;
+            "
+          >
+            <div class="flex items-c gap8 mb8">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="var(--accent)"
+                stroke-width="1.5"
+              >
+                <circle cx="7" cy="7" r="5.5" />
+                <path d="M7 4.5v3.5M7 9.5v.5" stroke-linecap="round" />
+              </svg>
+              <span class="fw6 c-accent txt-sm">关于 FMEA 评分</span>
+            </div>
+            <div class="txt-sm c-muted" style="line-height: 1.6">
+              <strong style="color: var(--text)">严重度 S</strong>（1-10）×
+              <strong style="color: var(--text)">发生率 O</strong>（1-10）×
+              <strong style="color: var(--text)">可探测度 D</strong>（1-10）=
+              <strong style="color: var(--accent)">RPN 风险优先数</strong>。
+              风险从 Excel
+              自动提取，评分已根据风险描述智能赋值，可点击数字编辑后自动保存到本地。
+            </div>
+          </div>
+          <div class="fmea-stats" id="fmea-stats"></div>
+          <div class="fmea-filter-row">
+            <select class="sel" id="fmea-proj-sel" onchange="renderFMEA()">
+              <option value="">全部项目</option>
+            </select>
+            <select class="sel" id="fmea-lvl-sel" onchange="renderFMEA()">
+              <option value="">全部风险等级</option>
+              <option value="high">高风险 (RPN ≥ 200)</option>
+              <option value="mid">中风险 (RPN 100–199)</option>
+              <option value="low">低风险 (RPN &lt; 100)</option>
+            </select>
+          </div>
+          <div class="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>项目</th>
+                  <th>风险阶段</th>
+                  <th>失效模式</th>
+                  <th>影响对象</th>
+                  <th style="text-align: center">S</th>
+                  <th style="text-align: center">O</th>
+                  <th style="text-align: center">D</th>
+                  <th style="text-align: center">RPN</th>
+                  <th>预防/控制措施</th>
+                  <th>责任人</th>
+                  <th>截止日期</th>
+                </tr>
+              </thead>
+              <tbody id="fmea-tbody"></tbody>
+            </table>
+          </div>
+          <div class="divider"></div>
+          <div class="sec-hd">
+            <span class="sec-title">风险优先排序</span
+            ><span class="sec-sub txt-xs">Top 15 · 按 RPN 降序</span>
+          </div>
+          <div class="chart-box"><canvas id="fmea-chart"></canvas></div>
+        </div>
 
-function stl(s) { return STATUS_LABEL[s] || s; }
-function stc(s) { return STATUS_COLOR[s] || 'var(--accent)'; }
-function initials(n) { return n ? n.slice(-2) : '?'; }
+        <!-- ACTIONS -->
+        <div class="view" id="view-actions">
+          <div class="page-hd">
+            <div>
+              <h1>跟进中心</h1>
+              <p>基于 Excel 进度数据自动提取的待跟进任务</p>
+            </div>
+          </div>
+          <div class="alert-bar" id="weekly-bar">
+            <div class="flex items-c gap8 mb12">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="var(--warn)"
+              >
+                <path d="M7 1.5 1.5 12.5h11L7 1.5z" stroke="none" />
+                <path
+                  d="M7 6v3"
+                  stroke="var(--bg)"
+                  stroke-width="1.2"
+                  stroke-linecap="round"
+                  fill="none"
+                />
+                <circle cx="7" cy="10.5" r=".5" fill="var(--bg)" />
+              </svg>
+              <span class="fw6 c-warn txt-sm">本周重点关注（14天内到期）</span>
+            </div>
+            <div id="weekly-items"></div>
+          </div>
+          <div class="kanban" id="kanban"></div>
+        </div>
 
-function daysUntilDate(d) {
-  if (!d || d === '持续进行') return 999;
-  const diff = new Date(d) - TODAY;
-  return Math.round(diff / 864e5);
-}
-function dueCls(d) {
-  const n = daysUntilDate(d);
-  return n < 0 ? 'due-over' : n <= 7 ? 'due-soon' : '';
-}
-function dueTxt(d) {
-  if (!d || d === '持续进行') return '持续进行';
-  const n = daysUntilDate(d);
-  if (n < 0)  return `逾期 ${-n} 天`;
-  if (n === 0) return '今天到期';
-  if (n === 1) return '明天到期';
-  return `${n} 天后`;
-}
-function fmtDate(d) {
-  if (!d) return '';
-  return d.slice(0, 10);
-}
+        <!-- IMPORT -->
+        <div class="view" id="view-import">
+          <div class="page-hd">
+            <div>
+              <h1>数据导入</h1>
+              <p>选择包含 Excel 模板文件的文件夹，点击"同步数据"读取分析</p>
+            </div>
+          </div>
 
-function ring(prog, status, size = 58) {
-  const r = size / 2 - 5, c = 2 * Math.PI * r, off = c - (prog / 100) * c;
-  return `<div class="ring-wrap" style="width:${size}px;height:${size}px">
+          <div
+            id="no-fs-api"
+            style="
+              display: none;
+              background: var(--danger-bg);
+              border: 1px solid rgba(240, 77, 77, 0.2);
+              border-radius: var(--r);
+              padding: 14px 18px;
+              margin-bottom: 20px;
+            "
+          >
+            <span class="c-danger fw6">⚠ 浏览器不支持</span>
+            <span class="txt-sm c-muted" style="margin-left: 8px"
+              >文件系统访问 API 需要 Chrome 93+ 或 Edge 93+
+              浏览器，请切换浏览器后重试。</span
+            >
+          </div>
+
+          <div class="path-row">
+            <div class="path-display" id="folder-display">尚未选择文件夹</div>
+            <button class="btn btn-primary" onclick="syncFiles()">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              >
+                <path d="M11 6A5 5 0 1 1 1 6m0-2v2h2" />
+              </svg>
+              同步数据
+            </button>
+            <button class="btn btn-ghost" onclick="pickFolder()">
+              选择文件夹
+            </button>
+          </div>
+
+          <!-- AUTO-SYNC SETTINGS CARD -->
+          <div
+            style="
+              background: var(--bg-card);
+              border: 1px solid var(--border);
+              border-radius: var(--r);
+              padding: 16px 20px;
+              margin-bottom: 20px;
+            "
+          >
+            <div
+              class="flex items-c"
+              style="justify-content: space-between; margin-bottom: 14px"
+            >
+              <span class="fw6 txt-sm">自动同步</span>
+              <span
+                class="txt-xs"
+                id="autosync-status"
+                style="color: var(--accent)"
+              ></span>
+            </div>
+            <div class="flex items-c gap12" style="flex-wrap: wrap">
+              <div class="flex items-c gap8">
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    id="autosync-toggle"
+                    onchange="onAutoSyncToggle()"
+                  />
+                  <div class="toggle-track"></div>
+                  <div class="toggle-thumb"></div>
+                </label>
+                <span class="txt-sm" id="autosync-label">已关闭</span>
+              </div>
+              <div class="flex items-c gap8" style="margin-left: 16px">
+                <span class="txt-sm c-muted">同步间隔</span>
+                <input
+                  type="number"
+                  class="score-inp"
+                  id="autosync-interval"
+                  min="1"
+                  max="60"
+                  value="1"
+                  style="width: 52px; text-align: center"
+                  onchange="onIntervalChange()"
+                />
+                <span class="txt-sm c-muted">分钟</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="import-drop" onclick="pickFolder()">
+            <div class="drop-icon">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 22 22"
+                fill="none"
+                stroke="var(--text-2)"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              >
+                <path
+                  d="M3 8a2 2 0 0 1 2-2h3.17a2 2 0 0 1 1.41.59L11 8h6a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"
+                />
+              </svg>
+            </div>
+            <div class="fw6 mb8">点击选择项目 Excel 文件夹</div>
+            <div class="txt-sm c-muted">
+              支持 .xlsx 格式，固定模板（子项 / 子项2 / 总结汇报表）
+            </div>
+          </div>
+
+          <div id="file-list-section" style="display: none">
+            <div class="sec-hd">
+              <span class="sec-title">已加载文件</span
+              ><span id="last-sync-label" class="txt-xs c-muted"></span>
+            </div>
+            <div class="file-list" id="file-list"></div>
+          </div>
+
+          <div class="mt20">
+            <div class="sec-hd">
+              <span class="sec-title">字段映射说明</span
+              ><span class="sec-sub">Excel 模板列 → 系统字段</span>
+            </div>
+            <div class="map-grid">
+              <div
+                class="txt-xs c-dim fw6"
+                style="text-transform: uppercase; letter-spacing: 0.05em"
+              >
+                Excel 列
+              </div>
+              <div></div>
+              <div
+                class="txt-xs c-dim fw6"
+                style="text-transform: uppercase; letter-spacing: 0.05em"
+              >
+                系统字段
+              </div>
+              <div class="map-src">B 列 · 关键里程碑</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">阶段/里程碑</div>
+              <div class="map-src">C 列 · 里程碑分解</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">任务名称</div>
+              <div class="map-src">负责部门 / 负责人</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">owner / dept</div>
+              <div class="map-src">开始时间 / 结束时间</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">start / due</div>
+              <div class="map-src">工作进度 (0–1)</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">progress (%)</div>
+              <div class="map-src">完成状态</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">status</div>
+              <div class="map-src">阶段性完成情况汇报</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">update</div>
+              <div class="map-src">风险</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">risks[].mode</div>
+              <div class="map-src">解决措施</div>
+              <div class="map-arrow">→</div>
+              <div class="map-dst">risks[].measure</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- OVERLAY -->
+    <div class="overlay" id="overlay" onclick="closeDrawer()"></div>
+
+    <!-- DRAWER -->
+    <div class="drawer" id="drawer">
+      <div class="drawer-hd">
+        <div style="padding-right: 34px">
+          <div class="txt-xs c-dim mb4" id="dr-code"></div>
+          <div
+            style="font-size: 16px; font-weight: 600; margin-bottom: 8px"
+            id="dr-name"
+          ></div>
+          <div class="flex items-c gap8">
+            <span id="dr-stag"></span
+            ><span class="txt-xs c-muted" id="dr-due"></span>
+          </div>
+        </div>
+        <button class="drawer-close" onclick="closeDrawer()">
+          <svg
+            width="13"
+            height="13"
+            viewBox="0 0 13 13"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          >
+            <path d="M1.5 1.5 11.5 11.5M11.5 1.5 1.5 11.5" />
+          </svg>
+        </button>
+      </div>
+      <div class="drawer-body">
+        <div class="tabs">
+          <div class="tab active" onclick="switchTab(this, 'tp-tl')">
+            时间线
+          </div>
+          <div class="tab" onclick="switchTab(this, 'tp-task')">任务进展</div>
+          <div class="tab" onclick="switchTab(this, 'tp-risk')">风险清单</div>
+          <div class="tab" onclick="switchTab(this, 'tp-act')">跟进事项</div>
+        </div>
+        <div class="tab-panel active" id="tp-tl"></div>
+        <div class="tab-panel" id="tp-task"></div>
+        <div class="tab-panel" id="tp-risk"></div>
+        <div class="tab-panel" id="tp-act"></div>
+      </div>
+    </div>
+
+    <!-- TOAST -->
+    <div
+      id="toast"
+      style="
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 13px;
+        z-index: 9999;
+        opacity: 0;
+        transition: all 0.3s;
+        pointer-events: none;
+        max-width: 400px;
+        text-align: center;
+      "
+    ></div>
+
+    <script>
+      // ================================================================
+      // CONSTANTS
+      // ================================================================
+      const LS_DATA = "pt_data";
+      const IDB_NAME = "project-tracker";
+      const IDB_STORE = "handles";
+      const IDB_SCORES = "fmea-scores";
+      const TODAY = new Date();
+
+      // ================================================================
+      // STORAGE — IndexedDB (directory handles + FMEA scores)
+      // ================================================================
+      let _db = null;
+      async function getDB() {
+        if (_db) return _db;
+        return new Promise((res, rej) => {
+          const req = indexedDB.open(IDB_NAME, 1);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(IDB_STORE))
+              db.createObjectStore(IDB_STORE);
+            if (!db.objectStoreNames.contains(IDB_SCORES))
+              db.createObjectStore(IDB_SCORES);
+          };
+          req.onsuccess = (e) => {
+            _db = e.target.result;
+            res(_db);
+          };
+          req.onerror = (e) => rej(e.target.error);
+        });
+      }
+      async function idbPut(store, key, val) {
+        const db = await getDB();
+        return new Promise((res, rej) => {
+          const tx = db.transaction(store, "readwrite");
+          tx.objectStore(store).put(val, key);
+          tx.oncomplete = () => res();
+          tx.onerror = (e) => rej(e.target.error);
+        });
+      }
+      async function idbGet(store, key) {
+        const db = await getDB();
+        return new Promise((res) => {
+          const tx = db.transaction(store, "readonly");
+          const req = tx.objectStore(store).get(key);
+          req.onsuccess = (e) => res(e.target.result ?? null);
+          req.onerror = () => res(null);
+        });
+      }
+      async function idbDel(store, key) {
+        const db = await getDB();
+        return new Promise((res) => {
+          const tx = db.transaction(store, "readwrite");
+          tx.objectStore(store).delete(key);
+          tx.oncomplete = () => res();
+          tx.onerror = () => res();
+        });
+      }
+
+      // ================================================================
+      // FMEA SCORE PERSISTENCE
+      // ================================================================
+      async function getScores(pname, mode) {
+        const key = `${pname}||${mode}`;
+        const saved = await idbGet(IDB_SCORES, key);
+        if (saved) return saved;
+        return defaultScores(mode);
+      }
+      async function saveScores(pname, mode, s, o, d) {
+        const key = `${pname}||${mode}`;
+        await idbPut(IDB_SCORES, key, { s: +s, o: +o, d: +d });
+      }
+
+      function defaultScores(text) {
+        let s = 6,
+          o = 5,
+          d = 5;
+        if (/延迟|延期|失败|丢失|损坏|拒绝|阻力大|停滞/.test(text)) s = 8;
+        else if (/困难|不足|冲突|走样|低于|不清晰/.test(text)) s = 7;
+        if (/可能|频繁|容易|高|大/.test(text)) o = 6;
+        else if (/低|小|偶尔/.test(text)) o = 4;
+        if (/不清晰|模糊|不当|走样|难以/.test(text)) d = 6;
+        return { s, o, d };
+      }
+
+      function rpnClass(r) {
+        return r >= 200 ? "rpn-h" : r >= 100 ? "rpn-m" : "rpn-l";
+      }
+
+      // ================================================================
+      // EXCEL PARSING UTILITIES
+      // ================================================================
+      function cellStr(v) {
+        if (v === null || v === undefined) return "";
+        const s = String(v).trim();
+        return s === "null" ? "" : s;
+      }
+
+      function parseExcelDate(val) {
+        if (val === null || val === undefined || val === "") return "";
+        if (val instanceof Date)
+          return isNaN(val) ? "" : val.toISOString().slice(0, 10);
+        if (typeof val === "string") {
+          if (/随时|持续|按季度/.test(val)) return "";
+          if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
+          const n = parseFloat(val);
+          if (!isNaN(n) && n > 40000 && n < 60000) return excelSerialToDate(n);
+          return "";
+        }
+        if (typeof val === "number" && val > 40000 && val < 60000)
+          return excelSerialToDate(val);
+        return "";
+      }
+
+      function excelSerialToDate(n) {
+        const d = new Date(Math.round((n - 25569) * 86400 * 1000));
+        return d.toISOString().slice(0, 10);
+      }
+
+      function mapTaskStatus(s) {
+        if (!s) return "pending";
+        if (/已完成/.test(s)) return "done";
+        if (/进行中|按期|进行/.test(s)) return "in-progress";
+        return "pending";
+      }
+
+      // ================================================================
+      // EXCEL PARSE — workbook / sheet helpers
+      // ================================================================
+      function safeSheetKey(name, index) {
+        const base = cellStr(name) || `Sheet${index + 1}`;
+        return base.replace(/[\\/:*?"<>|]/g, "_").trim() || `Sheet${index + 1}`;
+      }
+
+      function buildProjectId(filename, sheetName, index) {
+        return `p_${safeSheetKey(filename, 0)}_${safeSheetKey(sheetName, index)}_${index}`;
+      }
+
+      function parseSheet(ws, filename, sheetName, sheetIndex) {
+        if (!ws) return null;
+
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+        if (rows.length < 5) return null;
+
+        const normalizedSheetName =
+          cellStr(sheetName) || `Sheet${sheetIndex + 1}`;
+
+        function findCol(name) {
+          for (let r = 3; r <= 6 && r < rows.length; r++) {
+            const row = rows[r] || [];
+            for (let c = 0; c < row.length; c++) {
+              if (cellStr(row[c]) === name) return c;
+            }
+          }
+          return -1;
+        }
+
+        const startIdx = findCol("开始时间");
+        const phaseIdx = findCol("关键里程碑");
+        const taskIdx = findCol("里程碑分解");
+        if (phaseIdx < 0 && taskIdx < 0) return null;
+
+        const COL = {
+          phase: phaseIdx >= 0 ? phaseIdx : 1,
+          task: taskIdx >= 0 ? taskIdx : 2,
+          dept: findCol("负责部门"),
+          owner: findCol("负责人"),
+          members: findCol("小组成员"),
+          startDate: startIdx >= 0 ? startIdx : 6,
+          endDate:
+            startIdx >= 0
+              ? startIdx + 1
+              : findCol("结束时间") >= 0
+                ? findCol("结束时间")
+                : 7,
+          progress: findCol("工作进度"),
+          status: findCol("完成状态"),
+          desc: findCol("工作进度情况描述"),
+          report: findCol("阶段性完成情况汇报"),
+          risk: findCol("风险"),
+          measure: findCol("解决措施"),
+          resource: findCol("资源需求"),
+        };
+
+        if (COL.dept < 0) COL.dept = 3;
+        if (COL.owner < 0) COL.owner = 4;
+        if (COL.progress < 0) COL.progress = COL.endDate + 1;
+        if (COL.status < 0) COL.status = COL.progress + 1;
+        if (COL.desc < 0) COL.desc = COL.status + 1;
+        if (COL.report < 0) COL.report = COL.desc + 1;
+        if (COL.risk < 0) COL.risk = COL.report + 1;
+        if (COL.measure < 0) COL.measure = COL.risk + 1;
+
+        const firstTaskRow = rows.slice(5).find((row) => {
+          if (!row) return false;
+          return cellStr(row[COL.phase]) || cellStr(row[COL.task]);
+        });
+        if (!firstTaskRow) return null;
+
+        const projectName =
+          cellStr(rows[0]?.[1]) || filename.replace(/\.xlsx?$/i, "");
+        const milestones = [],
+          tasks = [],
+          risks = [];
+        let currentPhase = "";
+
+        for (let i = 5; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || !row.some((c) => c !== null && String(c).trim()))
+            continue;
+
+          const phaseVal = cellStr(row[COL.phase]);
+          const taskVal = cellStr(row[COL.task]);
+
+          if (phaseVal && !taskVal) {
+            currentPhase = phaseVal;
+            const shortName = phaseVal
+              .replace(/^[一二三四五六七八九十]+[、.。，,]\s*/, "")
+              .slice(0, 22);
+            milestones.push({
+              name: shortName,
+              fullName: phaseVal,
+              status: "pending",
+            });
+            continue;
+          }
+          if (!taskVal) continue;
+
+          const owner = cellStr(row[COL.owner]);
+          const dept = cellStr(row[COL.dept]);
+          const startDate = parseExcelDate(row[COL.startDate]);
+          const endDate = parseExcelDate(row[COL.endDate]);
+          const progressRaw = row[COL.progress];
+          const statusRaw = cellStr(row[COL.status]);
+          const desc = cellStr(row[COL.desc]);
+          const report = cellStr(row[COL.report]);
+          const riskText = cellStr(row[COL.risk]);
+          const measureText = cellStr(row[COL.measure]);
+
+          let progress = 0;
+          if (progressRaw !== null && progressRaw !== "") {
+            const p = parseFloat(String(progressRaw));
+            if (!isNaN(p))
+              progress = p <= 1 ? Math.round(p * 100) : Math.round(p);
+          }
+          const taskStatus = mapTaskStatus(statusRaw);
+          if (taskStatus === "done") progress = 100;
+
+          tasks.push({
+            phase: currentPhase,
+            name: taskVal,
+            owner,
+            dept,
+            start: startDate,
+            end: endDate,
+            progress,
+            status: taskStatus,
+            desc,
+            report,
+          });
+
+          if (riskText && riskText !== "/" && riskText.length > 1) {
+            risks.push({
+              mode: riskText,
+              effect: taskVal.slice(0, 35),
+              measure: measureText,
+              owner: owner || dept,
+              due: endDate,
+              phase: currentPhase,
+            });
+          }
+        }
+
+        if (!tasks.length && !risks.length && !milestones.length) return null;
+
+        milestones.forEach((m) => {
+          const mTasks = tasks.filter((t) => t.phase === m.fullName);
+          if (!mTasks.length) return;
+          if (mTasks.every((t) => t.status === "done")) m.status = "done";
+          else if (
+            mTasks.some(
+              (t) => t.status === "in-progress" || t.status === "done",
+            )
+          )
+            m.status = "current";
+        });
+
+        const prog = tasks.length
+          ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length)
+          : 0;
+        const hasOverdue = tasks.some(
+          (t) => t.status !== "done" && t.end && new Date(t.end) < TODAY,
+        );
+        const projectStatus = hasOverdue
+          ? "delayed"
+          : risks.length > 0
+            ? "at_risk"
+            : "healthy";
+
+        const ownerCounts = {};
+        tasks.forEach((t) => {
+          if (t.owner) ownerCounts[t.owner] = (ownerCounts[t.owner] || 0) + 1;
+        });
+        const mainOwner =
+          Object.entries(ownerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+
+        const sortedEnds = tasks
+          .filter((t) => t.end)
+          .map((t) => t.end)
+          .sort();
+        const sortedStarts = tasks
+          .filter((t) => t.start)
+          .map((t) => t.start)
+          .sort();
+
+        const latestReport =
+          [...tasks]
+            .reverse()
+            .find((t) => t.report && t.report !== "待汇报" && t.report !== "/")
+            ?.report || "";
+        const latestDesc =
+          [...tasks]
+            .reverse()
+            .find(
+              (t) =>
+                t.desc &&
+                !["正常", "/", "按期进行中", "未开始", "已完成"].includes(
+                  t.desc,
+                ),
+            )?.desc || "";
+        const update = latestReport || latestDesc || "暂无进展更新";
+
+        const actions = tasks
+          .filter((t) => t.status !== "done" && t.end)
+          .sort((a, b) => new Date(a.end) - new Date(b.end))
+          .slice(0, 6)
+          .map((t) => ({
+            t: t.name.slice(0, 40),
+            o: t.owner || t.dept || "待定",
+            due: t.end,
+            p:
+              daysUntilDate(t.end) < 0
+                ? "high"
+                : daysUntilDate(t.end) <= 14
+                  ? "high"
+                  : "medium",
+            s: t.status === "in-progress" ? "in_progress" : "pending",
+          }));
+
+        return {
+          id: buildProjectId(filename, normalizedSheetName, sheetIndex),
+          code: "",
+          name: projectName,
+          subProjectName: normalizedSheetName,
+          displayName: normalizedSheetName,
+          workbookName: filename.replace(/\.xlsx?$/i, ""),
+          owner: mainOwner,
+          dept: tasks.find((t) => t.dept)?.dept || "",
+          start: sortedStarts[0] || "",
+          due: sortedEnds[sortedEnds.length - 1] || "",
+          prog,
+          status: projectStatus,
+          update,
+          milestones: milestones.slice(0, 6),
+          tasks,
+          risks,
+          actions,
+          filename,
+          sheetName: normalizedSheetName,
+        };
+      }
+
+      // ================================================================
+      // EXCEL PARSE — main function
+      // ================================================================
+      function parseXlsx(buffer, filename) {
+        let wb;
+        try {
+          wb = XLSX.read(buffer, { type: "array", cellDates: true });
+        } catch (e) {
+          console.warn("XLSX read failed:", filename, e);
+          return [];
+        }
+
+        return wb.SheetNames.map((name, index) =>
+          parseSheet(wb.Sheets[name], filename, name, index),
+        ).filter(Boolean);
+      }
+
+      // ================================================================
+      // GLOBAL STATE
+      // ================================================================
+      let currentData = {
+        projects: [],
+        folderName: "",
+        lastSync: "",
+        files: [],
+      };
+
+      function loadData() {
+        try {
+          const raw = localStorage.getItem(LS_DATA);
+          if (raw) currentData = JSON.parse(raw);
+        } catch (e) {}
+      }
+
+      function saveData() {
+        try {
+          localStorage.setItem(LS_DATA, JSON.stringify(currentData));
+        } catch (e) {
+          showToast("数据保存失败（存储空间不足）");
+        }
+      }
+
+      function clearData(newFolderName) {
+        currentData = {
+          projects: [],
+          folderName: newFolderName || "",
+          lastSync: "",
+          files: [],
+        };
+        localStorage.removeItem(LS_DATA);
+        updateFolderUI(newFolderName || "未配置文件夹");
+        renderAll();
+      }
+
+      // ================================================================
+      // SYNC — File System Access API
+      // ================================================================
+      async function pickFolder() {
+        if (!window.showDirectoryPicker) {
+          document.getElementById("no-fs-api").style.display = "block";
+          showToast("请使用 Chrome 或 Edge 浏览器打开本工具");
+          return;
+        }
+        try {
+          const dirHandle = await window.showDirectoryPicker({ mode: "read" });
+          // If folder changed, clear previous data immediately
+          if (dirHandle.name !== currentData.folderName) {
+            clearData(dirHandle.name);
+          }
+          await idbPut(IDB_STORE, "dirHandle", dirHandle);
+          showToast(
+            "文件夹已选择：" + dirHandle.name + '，点击"同步数据"开始读取',
+          );
+        } catch (e) {
+          if (e.name !== "AbortError") showToast("选择失败：" + e.message);
+        }
+      }
+
+      async function syncFiles() {
+        if (!window.showDirectoryPicker) {
+          document.getElementById("no-fs-api").style.display = "block";
+          showToast("请使用 Chrome 93+ 或 Edge 93+ 浏览器");
+          return;
+        }
+
+        // Try to get stored handle first
+        let dirHandle = await idbGet(IDB_STORE, "dirHandle");
+        if (dirHandle) {
+          try {
+            const perm = await dirHandle.queryPermission({ mode: "read" });
+            if (perm !== "granted") {
+              const req = await dirHandle.requestPermission({ mode: "read" });
+              if (req !== "granted") dirHandle = null;
+            }
+          } catch (e) {
+            dirHandle = null;
+          }
+        }
+
+        // If no valid handle, ask user to pick
+        if (!dirHandle) {
+          try {
+            dirHandle = await window.showDirectoryPicker({ mode: "read" });
+            await idbPut(IDB_STORE, "dirHandle", dirHandle);
+          } catch (e) {
+            if (e.name !== "AbortError") showToast("选择文件夹失败");
+            return;
+          }
+        }
+
+        // If folder changed, clear previous data before loading new one
+        if (dirHandle.name !== currentData.folderName) {
+          clearData(dirHandle.name);
+        }
+
+        setSyncLoading(true);
+        showToast("正在读取 Excel 文件...");
+
+        const projects = [];
+        const filesMeta = [];
+
+        try {
+          for await (const [name, entry] of dirHandle.entries()) {
+            if (entry.kind !== "file") continue;
+            if (!name.toLowerCase().endsWith(".xlsx")) continue;
+            if (name.startsWith("~$")) continue; // skip temp files
+
+            try {
+              const file = await entry.getFile();
+              const buffer = await file.arrayBuffer();
+              const workbookProjects = parseXlsx(buffer, name);
+              if (workbookProjects.length) {
+                projects.push(...workbookProjects);
+                filesMeta.push({
+                  name,
+                  size: Math.round(file.size / 1024),
+                  lastModified: new Date(file.lastModified).toLocaleString(
+                    "zh-CN",
+                  ),
+                  sheets: workbookProjects.length,
+                  tasks: workbookProjects.reduce(
+                    (sum, item) => sum + item.tasks.length,
+                    0,
+                  ),
+                  risks: workbookProjects.reduce(
+                    (sum, item) => sum + item.risks.length,
+                    0,
+                  ),
+                });
+              }
+            } catch (e) {
+              console.error("Parse error:", name, e);
+              showToast(`解析 ${name} 失败，已跳过`);
+            }
+          }
+        } catch (e) {
+          showToast("读取文件夹失败：" + e.message);
+          setSyncLoading(false);
+          return;
+        }
+
+        if (!projects.length) {
+          showToast("未找到有效的 Excel 项目文件（需符合标准模板）");
+          setSyncLoading(false);
+          return;
+        }
+
+        // Sort by filename, assign codes
+        projects.sort(
+          (a, b) =>
+            a.filename.localeCompare(b.filename, "zh") ||
+            (a.subProjectName || "").localeCompare(
+              b.subProjectName || "",
+              "zh",
+            ),
+        );
+        projects.forEach(
+          (p, i) => (p.code = `P${String(i + 1).padStart(2, "0")}`),
+        );
+
+        currentData = {
+          projects,
+          folderName: dirHandle.name,
+          lastSync: new Date().toISOString(),
+          files: filesMeta,
+        };
+        saveData();
+        updateFolderUI(dirHandle.name);
+        renderAll();
+        setSyncLoading(false);
+        showToast(
+          `✓ 同步完成！已加载 ${projects.length} 个子项目、${projects.reduce((s, p) => s + p.risks.length, 0)} 条风险`,
+        );
+      }
+
+      function setSyncLoading(on) {
+        const icon = document.getElementById("sync-icon");
+        const btn = document.getElementById("sync-btn");
+        if (on) {
+          icon.classList.add("spinning");
+          btn.disabled = true;
+        } else {
+          icon.classList.remove("spinning");
+          btn.disabled = false;
+        }
+      }
+
+      function updateFolderUI(name) {
+        document.getElementById("topbar-folder").textContent = name;
+        document.getElementById("folder-display").textContent = name;
+      }
+
+      // ================================================================
+      // UTILITIES
+      // ================================================================
+      const STATUS_LABEL = {
+        healthy: "正常推进",
+        at_risk: "存在风险",
+        delayed: "延期预警",
+      };
+      const STATUS_COLOR = {
+        healthy: "var(--success)",
+        at_risk: "var(--warn)",
+        delayed: "var(--danger)",
+      };
+      const PRI_LABEL = { high: "高", medium: "中", low: "低" };
+
+      function stl(s) {
+        return STATUS_LABEL[s] || s;
+      }
+      function stc(s) {
+        return STATUS_COLOR[s] || "var(--accent)";
+      }
+      function initials(n) {
+        return n ? n.slice(-2) : "?";
+      }
+
+      function daysUntilDate(d) {
+        if (!d || d === "持续进行") return 999;
+        const diff = new Date(d) - TODAY;
+        return Math.round(diff / 864e5);
+      }
+      function dueCls(d) {
+        const n = daysUntilDate(d);
+        return n < 0 ? "due-over" : n <= 7 ? "due-soon" : "";
+      }
+      function dueTxt(d) {
+        if (!d || d === "持续进行") return "持续进行";
+        const n = daysUntilDate(d);
+        if (n < 0) return `逾期 ${-n} 天`;
+        if (n === 0) return "今天到期";
+        if (n === 1) return "明天到期";
+        return `${n} 天后`;
+      }
+      function fmtDate(d) {
+        if (!d) return "";
+        return d.slice(0, 10);
+      }
+
+      function ring(prog, status, size = 58) {
+        const r = size / 2 - 5,
+          c = 2 * Math.PI * r,
+          off = c - (prog / 100) * c;
+        return `<div class="ring-wrap" style="width:${size}px;height:${size}px">
     <svg class="ring-svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <circle class="ring-track" cx="${size/2}" cy="${size/2}" r="${r}" stroke-width="4"/>
-      <circle class="ring-fill" cx="${size/2}" cy="${size/2}" r="${r}" stroke-width="4" stroke="${stc(status)}" stroke-dasharray="${c}" stroke-dashoffset="${off}"/>
+      <circle class="ring-track" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="4"/>
+      <circle class="ring-fill" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="4" stroke="${stc(status)}" stroke-dasharray="${c}" stroke-dashoffset="${off}"/>
     </svg>
     <div class="ring-txt">${prog}%</div>
   </div>`;
-}
+      }
 
-function statusTag(s) {
-  return `<span class="stag stag-${s}"><span class="sdot" style="background:${stc(s)}"></span>${stl(s)}</span>`;
-}
+      function statusTag(s) {
+        return `<span class="stag stag-${s}"><span class="sdot" style="background:${stc(s)}"></span>${stl(s)}</span>`;
+      }
 
-// ================================================================
-// RENDER ALL
-// ================================================================
-function renderAll() {
-  const { projects } = currentData;
+      // ================================================================
+      // RENDER ALL
+      // ================================================================
+      function renderAll() {
+        const { projects } = currentData;
 
-  // Update badges
-  document.getElementById('nb-proj').textContent   = projects.length;
-  const totalRisks   = projects.reduce((s, p) => s + p.risks.length, 0);
-  const totalActions = projects.reduce((s, p) => s + p.actions.length, 0);
-  document.getElementById('nb-risk').textContent   = totalRisks;
-  document.getElementById('nb-action').textContent = totalActions;
+        // Update badges
+        document.getElementById("nb-proj").textContent = projects.length;
+        const totalRisks = projects.reduce((s, p) => s + p.risks.length, 0);
+        const totalActions = projects.reduce((s, p) => s + p.actions.length, 0);
+        document.getElementById("nb-risk").textContent = totalRisks;
+        document.getElementById("nb-action").textContent = totalActions;
 
-  // Subtitle
-  const syncTime = currentData.lastSync
-    ? new Date(currentData.lastSync).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : '';
-  document.getElementById('dash-subtitle').textContent =
-    `${projects.length} 个项目${syncTime ? ' · 上次同步 ' + syncTime : ' · 尚未同步数据'}`;
+        // Subtitle
+        const syncTime = currentData.lastSync
+          ? new Date(currentData.lastSync).toLocaleString("zh-CN", {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "";
+        document.getElementById("dash-subtitle").textContent =
+          `${projects.length} 个子项目${syncTime ? " · 上次同步 " + syncTime : " · 尚未同步数据"}`;
 
-  // Update topbar
-  if (currentData.folderName) updateFolderUI(currentData.folderName);
+        // Update topbar
+        if (currentData.folderName) updateFolderUI(currentData.folderName);
 
-  renderDashboard();
-  renderImportFiles();
-  // FMEA and actions re-render when navigated to
-}
+        renderDashboard();
+        renderImportFiles();
+        // FMEA and actions re-render when navigated to
+      }
 
-// ================================================================
-// RENDER DASHBOARD
-// ================================================================
-function renderDashboard() {
-  const { projects } = currentData;
+      // ================================================================
+      // RENDER DASHBOARD
+      // ================================================================
+      function renderDashboard() {
+        const { projects } = currentData;
 
-  if (!projects.length) {
-    document.getElementById('kpi-row').innerHTML = '';
-    document.getElementById('proj-grid').innerHTML = `
+        if (!projects.length) {
+          document.getElementById("kpi-row").innerHTML = "";
+          document.getElementById("proj-grid").innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
         <div class="empty-icon">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round">
@@ -1050,255 +2590,408 @@ function renderDashboard() {
         <div class="empty-sub">请选择包含 Excel 模板文件的文件夹，点击"同步数据"开始分析</div>
         <button class="btn btn-primary" onclick="syncFiles()">立即同步数据</button>
       </div>`;
-    document.getElementById('heatmap-section').style.display = 'none';
-    return;
-  }
+          document.getElementById("heatmap-section").style.display = "none";
+          return;
+        }
 
-  const healthy  = projects.filter(p => p.status === 'healthy').length;
-  const at_risk  = projects.filter(p => p.status === 'at_risk').length;
-  const delayed  = projects.filter(p => p.status === 'delayed').length;
-  const totalRisk = projects.reduce((s, p) => s + p.risks.length, 0);
+        const healthy = projects.filter((p) => p.status === "healthy").length;
+        const at_risk = projects.filter((p) => p.status === "at_risk").length;
+        const delayed = projects.filter((p) => p.status === "delayed").length;
+        const totalRisk = projects.reduce((s, p) => s + p.risks.length, 0);
 
-  document.getElementById('kpi-row').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">项目总数</div><div class="kpi-val c-accent">${projects.length}</div><div class="kpi-sub">已导入项目</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--accent)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">正常推进</div><div class="kpi-val c-success">${healthy}</div><div class="kpi-sub">健康度良好</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length?healthy/projects.length*100:0}%;background:var(--success)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">存在风险</div><div class="kpi-val c-warn">${at_risk}</div><div class="kpi-sub">需重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length?at_risk/projects.length*100:0}%;background:var(--warn)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">延期预警</div><div class="kpi-val c-danger">${delayed}</div><div class="kpi-sub">需立即介入</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length?delayed/projects.length*100:0}%;background:var(--danger)"></div></div></div>
+        document.getElementById("kpi-row").innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">子项目总数</div><div class="kpi-val c-accent">${projects.length}</div><div class="kpi-sub">已导入 sheet</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--accent)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">正常推进</div><div class="kpi-val c-success">${healthy}</div><div class="kpi-sub">健康度良好</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (healthy / projects.length) * 100 : 0}%;background:var(--success)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">存在风险</div><div class="kpi-val c-warn">${at_risk}</div><div class="kpi-sub">需重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (at_risk / projects.length) * 100 : 0}%;background:var(--warn)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">延期预警</div><div class="kpi-val c-danger">${delayed}</div><div class="kpi-sub">需立即介入</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (delayed / projects.length) * 100 : 0}%;background:var(--danger)"></div></div></div>
   `;
 
-  document.getElementById('proj-grid').innerHTML = `
+        document.getElementById("proj-grid").innerHTML = `
     <div class="proj-grid">
-      ${projects.map(p => `
+      ${projects
+        .map(
+          (p) => `
         <div class="proj-card" id="pc${p.id}" onclick="openDrawer('${p.id}')">
           <div class="proj-top">
             <div class="proj-meta">
-              <div class="proj-code">${p.code} · ${p.dept || '未知部门'}</div>
-              <div class="proj-name">${p.name}</div>
+              <div class="proj-code">${p.code} · ${p.dept || "未知部门"}</div>
+              <div class="proj-name">${p.subProjectName || p.name}</div>
+              <div class="txt-xs c-muted">${p.name}${p.subProjectName && p.subProjectName !== p.name ? ` · 主项目` : ""}</div>
               <div class="owner-row">
                 <div class="mini-av">${initials(p.owner)}</div>
-                <span class="txt-sm c-muted">${p.owner || '未指定负责人'}</span>
+                <span class="txt-sm c-muted">${p.owner || "未指定负责人"}</span>
               </div>
             </div>
             ${ring(p.prog, p.status)}
           </div>
           <div class="flex items-c gap8">
             ${statusTag(p.status)}
-            ${p.risks.filter(r => r._rpn >= 200).length > 0
-              ? `<span class="txt-xs c-danger">● ${p.risks.filter(r=>r._rpn>=200).length} 高风险</span>`
-              : p.risks.length > 0 ? `<span class="txt-xs c-muted">${p.risks.length} 条风险</span>` : ''}
+            ${
+              p.risks.filter((r) => r._rpn >= 200).length > 0
+                ? `<span class="txt-xs c-danger">● ${p.risks.filter((r) => r._rpn >= 200).length} 高风险</span>`
+                : p.risks.length > 0
+                  ? `<span class="txt-xs c-muted">${p.risks.length} 条风险</span>`
+                  : ""
+            }
           </div>
           <div class="proj-update">${p.update}</div>
           <div class="proj-foot">
-            <span class="txt-xs c-dim">到期 ${p.due || '未定'}</span>
-            <span class="txt-xs c-muted">${p.tasks.filter(t=>t.status==='done').length}/${p.tasks.length} 任务</span>
+            <span class="txt-xs c-dim">到期 ${p.due || "未定"}</span>
+            <span class="txt-xs c-muted">${p.tasks.filter((t) => t.status === "done").length}/${p.tasks.length} 任务</span>
           </div>
         </div>
-      `).join('')}
+      `,
+        )
+        .join("")}
     </div>`;
 
-  if (totalRisk > 0) {
-    document.getElementById('heatmap-section').style.display = 'block';
-    renderHeatmap();
-  } else {
-    document.getElementById('heatmap-section').style.display = 'none';
-  }
-}
+        if (totalRisk > 0) {
+          document.getElementById("heatmap-section").style.display = "block";
+          renderHeatmap();
+        } else {
+          document.getElementById("heatmap-section").style.display = "none";
+        }
+      }
 
-// ================================================================
-// RENDER HEATMAP
-// ================================================================
-function renderHeatmap() {
-  const { projects } = currentData;
-  const levels = [
-    { label: '极高 (≥300)', min: 300, max: Infinity, color1: 'rgba(240,77,77,.85)', textC: '#fff' },
-    { label: '高 (200–299)',min: 200, max: 300,      color1: 'rgba(240,77,77,.5)',  textC: '#fff' },
-    { label: '中 (100–199)',min: 100, max: 200,       color1: 'rgba(245,166,35,.6)', textC: '#fff' },
-    { label: '低 (<100)',   min: 0,   max: 100,       color1: 'rgba(62,207,142,.45)',textC: '#fff' },
-  ];
+      // ================================================================
+      // RENDER HEATMAP
+      // ================================================================
+      function renderHeatmap() {
+        const { projects } = currentData;
+        const levels = [
+          {
+            label: "极高 (≥300)",
+            min: 300,
+            max: Infinity,
+            color1: "rgba(240,77,77,.85)",
+            textC: "#fff",
+          },
+          {
+            label: "高 (200–299)",
+            min: 200,
+            max: 300,
+            color1: "rgba(240,77,77,.5)",
+            textC: "#fff",
+          },
+          {
+            label: "中 (100–199)",
+            min: 100,
+            max: 200,
+            color1: "rgba(245,166,35,.6)",
+            textC: "#fff",
+          },
+          {
+            label: "低 (<100)",
+            min: 0,
+            max: 100,
+            color1: "rgba(62,207,142,.45)",
+            textC: "#fff",
+          },
+        ];
 
-  const hdr = `<tr><th class="hmap-lbl" style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-3)">风险等级</th>
-    ${projects.map(p => `<td class="hmap-lbl-col">${p.code}</td>`).join('')}</tr>`;
+        const hdr = `<tr><th class="hmap-lbl" style="font-size:10px;font-weight:600;text-transform:uppercase;color:var(--text-3)">风险等级</th>
+    ${projects.map((p) => `<td class="hmap-lbl-col">${p.code}</td>`).join("")}</tr>`;
 
-  const lblColors = ['var(--danger)', 'var(--danger)', 'var(--warn)', 'var(--success)'];
-  const rows = levels.map((lv, li) => {
-    const cells = projects.map(p => {
-      // Get cached rpn or default
-      const cnt = (p.risks || []).filter(r => {
-        const rpn = r._rpn || 0;
-        return rpn >= lv.min && rpn < lv.max;
-      }).length;
-      const bg = cnt > 0 ? lv.color1 : 'transparent';
-      const c  = cnt > 0 ? lv.textC  : 'var(--text-3)';
-      const tips = cnt > 0 ? `${p.name}: ${cnt}条风险` : `${p.name}: 无`;
-      return `<td class="hmap-cell" style="background:${bg};color:${c}" data-tip="${tips}">${cnt > 0 ? cnt : '—'}</td>`;
-    }).join('');
-    return `<tr><td class="hmap-lbl" style="color:${lblColors[li]}">${lv.label}</td>${cells}</tr>`;
-  }).join('');
+        const lblColors = [
+          "var(--danger)",
+          "var(--danger)",
+          "var(--warn)",
+          "var(--success)",
+        ];
+        const rows = levels
+          .map((lv, li) => {
+            const cells = projects
+              .map((p) => {
+                // Get cached rpn or default
+                const cnt = (p.risks || []).filter((r) => {
+                  const rpn = r._rpn || 0;
+                  return rpn >= lv.min && rpn < lv.max;
+                }).length;
+                const bg = cnt > 0 ? lv.color1 : "transparent";
+                const c = cnt > 0 ? lv.textC : "var(--text-3)";
+                const tips =
+                  cnt > 0
+                    ? `${p.subProjectName || p.name}: ${cnt}条风险`
+                    : `${p.subProjectName || p.name}: 无`;
+                return `<td class="hmap-cell" style="background:${bg};color:${c}" data-tip="${tips}">${cnt > 0 ? cnt : "—"}</td>`;
+              })
+              .join("");
+            return `<tr><td class="hmap-lbl" style="color:${lblColors[li]}">${lv.label}</td>${cells}</tr>`;
+          })
+          .join("");
 
-  document.getElementById('heatmap-box').innerHTML =
-    `<table class="hmap-tbl"><thead>${hdr}</thead><tbody>${rows}</tbody></table>`;
-}
+        document.getElementById("heatmap-box").innerHTML =
+          `<table class="hmap-tbl"><thead>${hdr}</thead><tbody>${rows}</tbody></table>`;
+      }
 
-// ================================================================
-// RENDER FMEA
-// ================================================================
-let fmeaChart = null;
-let _fmeaRisks = []; // cached with scores
+      // ================================================================
+      // RENDER FMEA
+      // ================================================================
+      let fmeaChart = null;
+      let _fmeaRisks = []; // cached with scores
 
-async function renderFMEA() {
-  const { projects } = currentData;
-  if (!projects.length) {
-    document.getElementById('fmea-tbody').innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-2);padding:40px">尚未加载数据，请先同步 Excel 文件</td></tr>';
-    document.getElementById('fmea-stats').innerHTML = '';
-    return;
-  }
+      async function renderFMEA() {
+        const { projects } = currentData;
+        if (!projects.length) {
+          document.getElementById("fmea-tbody").innerHTML =
+            '<tr><td colspan="11" style="text-align:center;color:var(--text-2);padding:40px">尚未加载数据，请先同步 Excel 文件</td></tr>';
+          document.getElementById("fmea-stats").innerHTML = "";
+          return;
+        }
 
-  const pf = document.getElementById('fmea-proj-sel').value;
-  const lf = document.getElementById('fmea-lvl-sel').value;
+        const pf = document.getElementById("fmea-proj-sel").value;
+        const lf = document.getElementById("fmea-lvl-sel").value;
 
-  // Build all risks with scores (async)
-  let allRisks = [];
-  for (const p of projects) {
-    for (const r of (p.risks || [])) {
-      const sc = await getScores(p.name, r.mode);
-      const rpn = sc.s * sc.o * sc.d;
-      r._rpn = rpn; // cache on object
-      allRisks.push({ ...r, ...sc, rpn, pname: p.name, pcode: p.code });
-    }
-  }
+        // Build all risks with scores (async)
+        let allRisks = [];
+        for (const p of projects) {
+          for (const r of p.risks || []) {
+            const sc = await getScores(p.name, r.mode);
+            const rpn = sc.s * sc.o * sc.d;
+            r._rpn = rpn; // cache on object
+            allRisks.push({
+              ...r,
+              ...sc,
+              rpn,
+              pname: p.name,
+              subProjectName: p.subProjectName || p.name,
+              pcode: p.code,
+            });
+          }
+        }
 
-  if (pf) allRisks = allRisks.filter(r => r.pcode === pf);
-  if (lf === 'high') allRisks = allRisks.filter(r => r.rpn >= 200);
-  else if (lf === 'mid') allRisks = allRisks.filter(r => r.rpn >= 100 && r.rpn < 200);
-  else if (lf === 'low') allRisks = allRisks.filter(r => r.rpn < 100);
-  allRisks.sort((a, b) => b.rpn - a.rpn);
-  _fmeaRisks = allRisks;
+        if (pf) allRisks = allRisks.filter((r) => r.pcode === pf);
+        if (lf === "high") allRisks = allRisks.filter((r) => r.rpn >= 200);
+        else if (lf === "mid")
+          allRisks = allRisks.filter((r) => r.rpn >= 100 && r.rpn < 200);
+        else if (lf === "low") allRisks = allRisks.filter((r) => r.rpn < 100);
+        allRisks.sort((a, b) => b.rpn - a.rpn);
+        _fmeaRisks = allRisks;
 
-  const total = allRisks.length;
-  const high  = allRisks.filter(r => r.rpn >= 200).length;
-  const mid   = allRisks.filter(r => r.rpn >= 100 && r.rpn < 200).length;
+        const total = allRisks.length;
+        const high = allRisks.filter((r) => r.rpn >= 200).length;
+        const mid = allRisks.filter((r) => r.rpn >= 100 && r.rpn < 200).length;
 
-  document.getElementById('fmea-stats').innerHTML = `
+        document.getElementById("fmea-stats").innerHTML = `
     <div class="kpi-card"><div class="kpi-label">风险总数</div><div class="kpi-val c-accent" style="font-size:24px">${total}</div><div class="kpi-sub">当前筛选范围</div></div>
-    <div class="kpi-card"><div class="kpi-label">高风险 (RPN ≥ 200)</div><div class="kpi-val c-danger" style="font-size:24px">${high}</div><div class="kpi-sub">需优先处理</div><div class="kpi-bar"><div class="kpi-fill" style="width:${total?high/total*100:0}%;background:var(--danger)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">中风险 (100–199)</div><div class="kpi-val c-warn" style="font-size:24px">${mid}</div><div class="kpi-sub">重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${total?mid/total*100:0}%;background:var(--warn)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">高风险 (RPN ≥ 200)</div><div class="kpi-val c-danger" style="font-size:24px">${high}</div><div class="kpi-sub">需优先处理</div><div class="kpi-bar"><div class="kpi-fill" style="width:${total ? (high / total) * 100 : 0}%;background:var(--danger)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">中风险 (100–199)</div><div class="kpi-val c-warn" style="font-size:24px">${mid}</div><div class="kpi-sub">重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${total ? (mid / total) * 100 : 0}%;background:var(--warn)"></div></div></div>
   `;
 
-  const sc = (v, hi=7, md=5) => v >= hi ? 'var(--danger)' : v >= md ? 'var(--warn)' : 'var(--text)';
-  document.getElementById('fmea-tbody').innerHTML = allRisks.map((r, idx) => `
+        const sc = (v, hi = 7, md = 5) =>
+          v >= hi ? "var(--danger)" : v >= md ? "var(--warn)" : "var(--text)";
+        document.getElementById("fmea-tbody").innerHTML = allRisks
+          .map(
+            (r, idx) => `
     <tr>
-      <td><span class="txt-xs c-dim">${r.pcode}</span><br><span class="txt-sm">${r.pname.slice(0, 10)}${r.pname.length > 10 ? '…' : ''}</span></td>
-      <td class="txt-xs c-muted" style="max-width:100px">${r.phase ? r.phase.slice(0, 16) + (r.phase.length > 16 ? '…' : '') : '—'}</td>
+      <td><span class="txt-xs c-dim">${r.pcode}</span><br><span class="txt-sm">${r.subProjectName.slice(0, 10)}${r.subProjectName.length > 10 ? "…" : ""}</span><br><span class="txt-xs c-muted">${r.pname}</span></td>
+      <td class="txt-xs c-muted" style="max-width:100px">${r.phase ? r.phase.slice(0, 16) + (r.phase.length > 16 ? "…" : "") : "—"}</td>
       <td style="font-size:13px;font-weight:500;max-width:160px">${r.mode}</td>
       <td class="txt-sm c-muted" style="max-width:120px">${r.effect}</td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.s}" style="color:${sc(r.s)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g,"\\'")}',this)" data-field="s" data-ridx="${idx}"/></td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.o}" style="color:${sc(r.o)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g,"\\'")}',this)" data-field="o" data-ridx="${idx}"/></td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.d}" style="color:${sc(r.d)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g,"\\'")}',this)" data-field="d" data-ridx="${idx}"/></td>
+      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.s}" style="color:${sc(r.s)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="s" data-ridx="${idx}"/></td>
+      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.o}" style="color:${sc(r.o)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="o" data-ridx="${idx}"/></td>
+      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.d}" style="color:${sc(r.d)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="d" data-ridx="${idx}"/></td>
       <td style="text-align:center"><span class="rpn-pill ${rpnClass(r.rpn)}" id="rpn-${idx}">${r.rpn}</span></td>
-      <td class="txt-sm c-muted" style="max-width:160px">${r.measure || '—'}</td>
-      <td class="txt-sm">${r.owner || '—'}</td>
-      <td class="txt-xs c-muted" style="white-space:nowrap">${r.due || '—'}</td>
-    </tr>`).join('');
+      <td class="txt-sm c-muted" style="max-width:160px">${r.measure || "—"}</td>
+      <td class="txt-sm">${r.owner || "—"}</td>
+      <td class="txt-xs c-muted" style="white-space:nowrap">${r.due || "—"}</td>
+    </tr>`,
+          )
+          .join("");
 
-  // Chart
-  const top = allRisks.slice(0, 15);
-  const labels = top.map(r => (r.mode.length > 16 ? r.mode.slice(0, 16) + '…' : r.mode));
-  const colors = top.map(r => r.rpn >= 200 ? 'rgba(240,77,77,.75)' : r.rpn >= 100 ? 'rgba(245,166,35,.75)' : 'rgba(62,207,142,.75)');
-  if (fmeaChart) fmeaChart.destroy();
-  fmeaChart = new Chart(document.getElementById('fmea-chart').getContext('2d'), {
-    type: 'bar',
-    data: { labels, datasets: [{ data: top.map(r => r.rpn), backgroundColor: colors, borderRadius: 4, borderSkipped: false }] },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` RPN: ${ctx.raw}` } } },
-      scales: {
-        x: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#7E8B9E', font: { size: 11 } }, border: { color: 'rgba(255,255,255,.08)' } },
-        y: { grid: { display: false }, ticks: { color: '#7E8B9E', font: { size: 11 } }, border: { display: false } },
-      },
-    },
-  });
-}
+        // Chart
+        const top = allRisks.slice(0, 15);
+        const labels = top.map((r) =>
+          r.mode.length > 16 ? r.mode.slice(0, 16) + "…" : r.mode,
+        );
+        const colors = top.map((r) =>
+          r.rpn >= 200
+            ? "rgba(240,77,77,.75)"
+            : r.rpn >= 100
+              ? "rgba(245,166,35,.75)"
+              : "rgba(62,207,142,.75)",
+        );
+        if (fmeaChart) fmeaChart.destroy();
+        fmeaChart = new Chart(
+          document.getElementById("fmea-chart").getContext("2d"),
+          {
+            type: "bar",
+            data: {
+              labels,
+              datasets: [
+                {
+                  data: top.map((r) => r.rpn),
+                  backgroundColor: colors,
+                  borderRadius: 4,
+                  borderSkipped: false,
+                },
+              ],
+            },
+            options: {
+              indexAxis: "y",
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: { callbacks: { label: (ctx) => ` RPN: ${ctx.raw}` } },
+              },
+              scales: {
+                x: {
+                  grid: { color: "rgba(255,255,255,.05)" },
+                  ticks: { color: "#7E8B9E", font: { size: 11 } },
+                  border: { color: "rgba(255,255,255,.08)" },
+                },
+                y: {
+                  grid: { display: false },
+                  ticks: { color: "#7E8B9E", font: { size: 11 } },
+                  border: { display: false },
+                },
+              },
+            },
+          },
+        );
+      }
 
-async function onScoreChange(pname, mode, inp) {
-  const row = inp.closest('tr');
-  const inputs = row.querySelectorAll('.score-inp');
-  const vals = {};
-  inputs.forEach(i => { vals[i.dataset.field] = Math.min(10, Math.max(1, +i.value || 1)); });
-  const rpn = vals.s * vals.o * vals.d;
-  const idx = inp.dataset.ridx;
-  const rpnEl = document.getElementById('rpn-' + idx);
-  if (rpnEl) {
-    rpnEl.textContent = rpn;
-    rpnEl.className = 'rpn-pill ' + rpnClass(rpn);
-  }
-  await saveScores(pname, mode, vals.s, vals.o, vals.d);
-  // Update cached _rpn on project risks
-  const p = currentData.projects.find(p => p.name === pname);
-  if (p) { const r = p.risks.find(r => r.mode === mode); if (r) r._rpn = rpn; }
-}
+      async function onScoreChange(pname, mode, inp) {
+        const row = inp.closest("tr");
+        const inputs = row.querySelectorAll(".score-inp");
+        const vals = {};
+        inputs.forEach((i) => {
+          vals[i.dataset.field] = Math.min(10, Math.max(1, +i.value || 1));
+        });
+        const rpn = vals.s * vals.o * vals.d;
+        const idx = inp.dataset.ridx;
+        const rpnEl = document.getElementById("rpn-" + idx);
+        if (rpnEl) {
+          rpnEl.textContent = rpn;
+          rpnEl.className = "rpn-pill " + rpnClass(rpn);
+        }
+        await saveScores(pname, mode, vals.s, vals.o, vals.d);
+        // Update cached _rpn on project risks
+        const p = currentData.projects.find((p) => p.name === pname);
+        if (p) {
+          const r = p.risks.find((r) => r.mode === mode);
+          if (r) r._rpn = rpn;
+        }
+      }
 
-function initFMEAFilter() {
-  const sel = document.getElementById('fmea-proj-sel');
-  sel.innerHTML = '<option value="">全部项目</option>';
-  currentData.projects.forEach(p => {
-    const o = document.createElement('option');
-    o.value = p.code;
-    o.textContent = `${p.code} ${p.name}`;
-    sel.appendChild(o);
-  });
-}
+      function initFMEAFilter() {
+        const sel = document.getElementById("fmea-proj-sel");
+        sel.innerHTML = '<option value="">全部项目</option>';
+        currentData.projects.forEach((p) => {
+          const o = document.createElement("option");
+          o.value = p.code;
+          o.textContent = `${p.code} ${p.subProjectName || p.name}${p.subProjectName && p.subProjectName !== p.name ? ` · ${p.name}` : ""}`;
+          sel.appendChild(o);
+        });
+      }
 
-async function resetFMEAScores() {
-  if (!confirm('确认重置所有自定义 FMEA 评分为智能默认值？')) return;
-  const db = await getDB();
-  const tx = db.transaction(IDB_SCORES, 'readwrite');
-  tx.objectStore(IDB_SCORES).clear();
-  tx.oncomplete = () => { showToast('已重置所有评分'); renderFMEA(); };
-}
+      async function resetFMEAScores() {
+        if (!confirm("确认重置所有自定义 FMEA 评分为智能默认值？")) return;
+        const db = await getDB();
+        const tx = db.transaction(IDB_SCORES, "readwrite");
+        tx.objectStore(IDB_SCORES).clear();
+        tx.oncomplete = () => {
+          showToast("已重置所有评分");
+          renderFMEA();
+        };
+      }
 
-function exportFMEA() {
-  if (!_fmeaRisks.length) { showToast('暂无数据可导出'); return; }
-  const header = ['项目', '风险阶段', '失效模式', '影响对象', 'S', 'O', 'D', 'RPN', '预防措施', '责任人', '截止日期'];
-  const rows = _fmeaRisks.map(r => [r.pname, r.phase, r.mode, r.effect, r.s, r.o, r.d, r.rpn, r.measure, r.owner, r.due]);
-  const csv = [header, ...rows].map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `FMEA_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-}
+      function exportFMEA() {
+        if (!_fmeaRisks.length) {
+          showToast("暂无数据可导出");
+          return;
+        }
+        const header = [
+          "项目",
+          "风险阶段",
+          "失效模式",
+          "影响对象",
+          "S",
+          "O",
+          "D",
+          "RPN",
+          "预防措施",
+          "责任人",
+          "截止日期",
+        ];
+        const rows = _fmeaRisks.map((r) => [
+          r.pname,
+          r.phase,
+          r.mode,
+          r.effect,
+          r.s,
+          r.o,
+          r.d,
+          r.rpn,
+          r.measure,
+          r.owner,
+          r.due,
+        ]);
+        const csv = [header, ...rows]
+          .map((r) =>
+            r.map((c) => `"${String(c || "").replace(/"/g, '""')}"`).join(","),
+          )
+          .join("\n");
+        const blob = new Blob(["\uFEFF" + csv], {
+          type: "text/csv;charset=utf-8",
+        });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `FMEA_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click();
+      }
 
-// ================================================================
-// RENDER ACTIONS
-// ================================================================
-function renderActions() {
-  const { projects } = currentData;
-  if (!projects.length) {
-    document.getElementById('kanban').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-2);padding:40px">尚未加载数据</div>';
-    document.getElementById('weekly-items').innerHTML = '<span class="txt-sm c-muted">暂无数据</span>';
-    return;
-  }
+      // ================================================================
+      // RENDER ACTIONS
+      // ================================================================
+      function renderActions() {
+        const { projects } = currentData;
+        if (!projects.length) {
+          document.getElementById("kanban").innerHTML =
+            '<div style="grid-column:1/-1;text-align:center;color:var(--text-2);padding:40px">尚未加载数据</div>';
+          document.getElementById("weekly-items").innerHTML =
+            '<span class="txt-sm c-muted">暂无数据</span>';
+          return;
+        }
 
-  const all = [];
-  projects.forEach(p => p.actions.forEach(a => all.push({ ...a, pcode: p.code, pname: p.name })));
+        const all = [];
+        projects.forEach((p) =>
+          p.actions.forEach((a) =>
+            all.push({
+              ...a,
+              pcode: p.code,
+              pname: p.name,
+              subProjectName: p.subProjectName || p.name,
+            }),
+          ),
+        );
 
-  const cols = [
-    { key: 'pending',     title: '待开始' },
-    { key: 'in_progress', title: '跟进中' },
-    { key: 'closed',      title: '已完成', items: [] },
-  ];
+        const cols = [
+          { key: "pending", title: "待开始" },
+          { key: "in_progress", title: "跟进中" },
+          { key: "closed", title: "已完成", items: [] },
+        ];
 
-  document.getElementById('kanban').innerHTML = cols.map(col => {
-    const items = col.key === 'closed' ? (col.items || []) : all.filter(a => a.s === col.key);
-    return `<div class="kn-col">
+        document.getElementById("kanban").innerHTML = cols
+          .map((col) => {
+            const items =
+              col.key === "closed"
+                ? col.items || []
+                : all.filter((a) => a.s === col.key);
+            return `<div class="kn-col">
       <div class="kn-col-hd"><span class="kn-col-title">${col.title}</span><span class="kn-col-cnt">${items.length}</span></div>
       <div class="kn-col-body">
-        ${items.length ? items.map(a => `
+        ${
+          items.length
+            ? items
+                .map(
+                  (a) => `
           <div class="kn-card">
             <div class="flex items-c gap6 mb8">
               <div class="pri-dot pri-${a.p}"></div>
-              <span class="proj-tag">${a.pcode}</span>
-              <span class="txt-xs c-muted" style="margin-left:auto">${PRI_LABEL[a.p] || ''}优先</span>
+              <span class="proj-tag">${a.pcode} · ${a.subProjectName}</span>
+              <span class="txt-xs c-muted" style="margin-left:auto">${PRI_LABEL[a.p] || ""}优先</span>
             </div>
             <div class="kn-title">${a.t}</div>
             <div class="kn-foot">
@@ -1308,95 +3001,133 @@ function renderActions() {
               </div>
               <span class="due-txt ${dueCls(a.due)}">${dueTxt(a.due)}</span>
             </div>
-          </div>`).join('')
-          : `<div class="txt-sm c-muted" style="padding:8px">暂无</div>`}
+          </div>`,
+                )
+                .join("")
+            : `<div class="txt-sm c-muted" style="padding:8px">暂无</div>`
+        }
       </div>
     </div>`;
-  }).join('');
+          })
+          .join("");
 
-  // Weekly highlights
-  const urgent = all.filter(a => {
-    const d = daysUntilDate(a.due);
-    return d >= -3 && d <= 14;
-  }).sort((x, y) => daysUntilDate(x.due) - daysUntilDate(y.due)).slice(0, 6);
+        // Weekly highlights
+        const urgent = all
+          .filter((a) => {
+            const d = daysUntilDate(a.due);
+            return d >= -3 && d <= 14;
+          })
+          .sort((x, y) => daysUntilDate(x.due) - daysUntilDate(y.due))
+          .slice(0, 6);
 
-  document.getElementById('weekly-items').innerHTML = urgent.length
-    ? urgent.map(a => `
+        document.getElementById("weekly-items").innerHTML = urgent.length
+          ? urgent
+              .map(
+                (a) => `
         <div class="flex items-c gap8" style="margin-bottom:8px">
           <div class="pri-dot pri-${a.p}"></div>
-          <span class="proj-tag">${a.pcode}</span>
+          <span class="proj-tag">${a.pcode} · ${a.subProjectName}</span>
           <span style="font-size:13px;flex:1">${a.t}</span>
           <span class="txt-xs ${dueCls(a.due)}" style="flex-shrink:0">${a.o} · ${dueTxt(a.due)}</span>
-        </div>`).join('')
-    : '<span class="txt-sm c-muted">近期暂无紧急跟进事项</span>';
-}
+        </div>`,
+              )
+              .join("")
+          : '<span class="txt-sm c-muted">近期暂无紧急跟进事项</span>';
+      }
 
-// ================================================================
-// RENDER IMPORT FILES
-// ================================================================
-function renderImportFiles() {
-  const { files, folderName, lastSync } = currentData;
-  const sec = document.getElementById('file-list-section');
-  const lst = document.getElementById('file-list');
-  const lbl = document.getElementById('last-sync-label');
-  if (!files || !files.length) { sec.style.display = 'none'; return; }
-  sec.style.display = 'block';
-  if (lastSync) lbl.textContent = '上次同步 ' + new Date(lastSync).toLocaleString('zh-CN');
-  lst.innerHTML = files.map(f => `
+      // ================================================================
+      // RENDER IMPORT FILES
+      // ================================================================
+      function renderImportFiles() {
+        const { files, folderName, lastSync } = currentData;
+        const sec = document.getElementById("file-list-section");
+        const lst = document.getElementById("file-list");
+        const lbl = document.getElementById("last-sync-label");
+        if (!files || !files.length) {
+          sec.style.display = "none";
+          return;
+        }
+        sec.style.display = "block";
+        if (lastSync)
+          lbl.textContent =
+            "上次同步 " + new Date(lastSync).toLocaleString("zh-CN");
+        lst.innerHTML = files
+          .map(
+            (f) => `
     <div class="file-row">
       <div class="file-ico">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="var(--success)"><path d="M3 2.5a1 1 0 0 1 1-1h5.5l3.5 3.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2.5z"/><path d="M9 1.5V5h3.5" fill="none" stroke="rgba(0,0,0,.2)" stroke-width=".8"/></svg>
       </div>
       <div style="flex:1">
         <div class="file-name">${f.name}</div>
-        <div class="file-meta">${f.tasks} 条任务 · ${f.risks} 个风险 · ${f.size} KB · 修改 ${f.lastModified}</div>
+        <div class="file-meta">${f.sheets || 1} 个 sheet · ${f.tasks} 条任务 · ${f.risks} 个风险 · ${f.size} KB · 修改 ${f.lastModified}</div>
       </div>
       <span class="stag stag-healthy"><span class="sdot" style="background:var(--success)"></span>已解析</span>
-    </div>`).join('');
-}
+    </div>`,
+          )
+          .join("");
+      }
 
-// ================================================================
-// DRAWER
-// ================================================================
-function openDrawer(id) {
-  const p = currentData.projects.find(x => x.id === id);
-  if (!p) return;
-  document.querySelectorAll('.proj-card').forEach(c => c.classList.remove('sel'));
-  const card = document.getElementById('pc' + id);
-  if (card) card.classList.add('sel');
+      // ================================================================
+      // DRAWER
+      // ================================================================
+      function openDrawer(id) {
+        const p = currentData.projects.find((x) => x.id === id);
+        if (!p) return;
+        document
+          .querySelectorAll(".proj-card")
+          .forEach((c) => c.classList.remove("sel"));
+        const card = document.getElementById("pc" + id);
+        if (card) card.classList.add("sel");
 
-  document.getElementById('dr-code').textContent = `${p.code} · ${p.dept || ''}`;
-  document.getElementById('dr-name').textContent = p.name;
-  document.getElementById('dr-stag').innerHTML = statusTag(p.status);
-  document.getElementById('dr-due').textContent = `到期 ${p.due || '未定'} · ${p.prog}% 完成`;
+        document.getElementById("dr-code").textContent =
+          `${p.code} · ${p.dept || ""} · ${p.name}`;
+        document.getElementById("dr-name").textContent =
+          p.subProjectName || p.name;
+        document.getElementById("dr-stag").innerHTML = statusTag(p.status);
+        document.getElementById("dr-due").textContent =
+          `到期 ${p.due || "未定"} · ${p.prog}% 完成`;
 
-  fillTL(p); fillTasks(p); fillRisks(p); fillActions(p);
+        fillTL(p);
+        fillTasks(p);
+        fillRisks(p);
+        fillActions(p);
 
-  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === 0));
-  document.querySelectorAll('.tab-panel').forEach((t, i) => t.classList.toggle('active', i === 0));
+        document
+          .querySelectorAll(".tab")
+          .forEach((t, i) => t.classList.toggle("active", i === 0));
+        document
+          .querySelectorAll(".tab-panel")
+          .forEach((t, i) => t.classList.toggle("active", i === 0));
 
-  document.getElementById('drawer').classList.add('open');
-  document.getElementById('overlay').classList.add('open');
-}
+        document.getElementById("drawer").classList.add("open");
+        document.getElementById("overlay").classList.add("open");
+      }
 
-function closeDrawer() {
-  document.getElementById('drawer').classList.remove('open');
-  document.getElementById('overlay').classList.remove('open');
-  document.querySelectorAll('.proj-card').forEach(c => c.classList.remove('sel'));
-}
+      function closeDrawer() {
+        document.getElementById("drawer").classList.remove("open");
+        document.getElementById("overlay").classList.remove("open");
+        document
+          .querySelectorAll(".proj-card")
+          .forEach((c) => c.classList.remove("sel"));
+      }
 
-function fillTL(p) {
-  const done = p.milestones.filter(m => m.status === 'done').length;
-  document.getElementById('tp-tl').innerHTML = `
+      function fillTL(p) {
+        const done = p.milestones.filter((m) => m.status === "done").length;
+        document.getElementById("tp-tl").innerHTML = `
     <div class="tl">
-      ${p.milestones.map(m => `
+      ${p.milestones
+        .map(
+          (m) => `
         <div class="tl-item ${m.status}">
           <div class="tl-dot">
-            ${m.status === 'done' ? `<svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="#0A0E1A" stroke-width="2"><path d="M1.5 4.5l2 2 4-4"/></svg>` : ''}
-            ${m.status === 'current' ? `<div style="width:6px;height:6px;border-radius:50%;background:#fff"></div>` : ''}
+            ${m.status === "done" ? `<svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="#0A0E1A" stroke-width="2"><path d="M1.5 4.5l2 2 4-4"/></svg>` : ""}
+            ${m.status === "current" ? `<div style="width:6px;height:6px;border-radius:50%;background:#fff"></div>` : ""}
           </div>
           <div class="tl-name">${m.name}</div>
-        </div>`).join('')}
+        </div>`,
+        )
+        .join("")}
     </div>
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:14px">
       <div class="txt-xs c-dim mb8">整体进度</div>
@@ -1409,81 +3140,114 @@ function fillTL(p) {
       </div>
     </div>
     <div class="flex gap8" style="flex-wrap:wrap;margin-bottom:14px">
-      ${[['开始日期', p.start || '未定'], ['计划完成', p.due || '未定'], ['负责人', p.owner || '未指定']].map(([l, v]) => `
+      ${[
+        ["开始日期", p.start || "未定"],
+        ["计划完成", p.due || "未定"],
+        ["负责人", p.owner || "未指定"],
+      ]
+        .map(
+          ([l, v]) => `
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 14px;flex:1;min-width:100px">
           <div class="txt-xs c-dim mb4">${l}</div>
           <div class="fw6 txt-sm">${v}</div>
-        </div>`).join('')}
+        </div>`,
+        )
+        .join("")}
     </div>
     <div class="txt-xs c-dim mb8">最新进展</div>
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;font-size:13px;line-height:1.6;color:var(--text-2)">${p.update}</div>
   `;
-}
+      }
 
-function fillTasks(p) {
-  const dn = p.tasks.filter(t => t.status === 'done');
-  const ip = p.tasks.filter(t => t.status === 'in-progress');
-  const pd = p.tasks.filter(t => t.status === 'pending');
+      function fillTasks(p) {
+        const dn = p.tasks.filter((t) => t.status === "done");
+        const ip = p.tasks.filter((t) => t.status === "in-progress");
+        const pd = p.tasks.filter((t) => t.status === "pending");
 
-  const grp = (title, items, ck) => items.length ? `
+        const grp = (title, items, ck) =>
+          items.length
+            ? `
     <div class="task-grp">
       <div class="task-grp-hd">${title} (${items.length})</div>
-      ${items.map(t => `
+      ${items
+        .map(
+          (t) => `
         <div class="task-row">
           <div class="task-chk ${ck}">
-            ${ck === 'done' ? `<svg width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="#0A0E1A" stroke-width="2"><path d="M1 3.5l2 2 3-3"/></svg>` : ''}
+            ${ck === "done" ? `<svg width="7" height="7" viewBox="0 0 7 7" fill="none" stroke="#0A0E1A" stroke-width="2"><path d="M1 3.5l2 2 3-3"/></svg>` : ""}
           </div>
-          <span class="task-name ${ck === 'done' ? 'struck' : ''}">${t.name}</span>
+          <span class="task-name ${ck === "done" ? "struck" : ""}">${t.name}</span>
           <span class="txt-xs c-dim" style="flex-shrink:0">${t.progress}%</span>
-        </div>`).join('')}
-    </div>` : '';
+        </div>`,
+        )
+        .join("")}
+    </div>`
+            : "";
 
-  document.getElementById('tp-task').innerHTML = `
+        document.getElementById("tp-task").innerHTML = `
     <div class="flex gap8 mb16">
-      ${[[dn.length, '已完成', 'var(--success-bg)', 'var(--success)'], [ip.length, '进行中', 'var(--accent-bg)', 'var(--accent)'], [pd.length, '待开始', 'var(--bg-card)', 'var(--text-2)']].map(([v, l, bg, c]) => `
+      ${[
+        [dn.length, "已完成", "var(--success-bg)", "var(--success)"],
+        [ip.length, "进行中", "var(--accent-bg)", "var(--accent)"],
+        [pd.length, "待开始", "var(--bg-card)", "var(--text-2)"],
+      ]
+        .map(
+          ([v, l, bg, c]) => `
         <div style="background:${bg};border-radius:var(--r-sm);padding:10px 14px;text-align:center;flex:1">
           <div style="font-size:20px;font-weight:700;color:${c}">${v}</div>
           <div class="txt-xs c-muted">${l}</div>
-        </div>`).join('')}
+        </div>`,
+        )
+        .join("")}
     </div>
-    ${grp('进行中', ip, 'cur')}
-    ${grp('已完成', dn, 'done')}
-    ${grp('待开始', pd, '')}
+    ${grp("进行中", ip, "cur")}
+    ${grp("已完成", dn, "done")}
+    ${grp("待开始", pd, "")}
   `;
-}
+      }
 
-function fillRisks(p) {
-  if (!p.risks.length) {
-    document.getElementById('tp-risk').innerHTML = '<div class="txt-sm c-muted">该项目暂无风险记录</div>';
-    return;
-  }
-  const sorted = [...p.risks].sort((a, b) => (b._rpn || 0) - (a._rpn || 0));
-  document.getElementById('tp-risk').innerHTML = `
+      function fillRisks(p) {
+        if (!p.risks.length) {
+          document.getElementById("tp-risk").innerHTML =
+            '<div class="txt-sm c-muted">该项目暂无风险记录</div>';
+          return;
+        }
+        const sorted = [...p.risks].sort(
+          (a, b) => (b._rpn || 0) - (a._rpn || 0),
+        );
+        document.getElementById("tp-risk").innerHTML = `
     <div class="txt-xs c-dim mb12">${sorted.length} 条风险 · 按 RPN 降序（评分可在"风险分析"页编辑）</div>
-    ${sorted.map(r => `
+    ${sorted
+      .map(
+        (r) => `
       <div class="risk-row">
-        <div class="rpn-pill ${rpnClass(r._rpn || 0)}">${r._rpn || '?'}</div>
+        <div class="rpn-pill ${rpnClass(r._rpn || 0)}">${r._rpn || "?"}</div>
         <div style="flex:1">
           <div style="font-size:13px;font-weight:500;margin-bottom:3px">${r.mode}</div>
           <div class="txt-xs c-muted">${r.effect}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
-          <div class="txt-xs c-muted">${r.owner || ''}</div>
-          <div class="txt-xs c-dim">${r.due || ''}</div>
+          <div class="txt-xs c-muted">${r.owner || ""}</div>
+          <div class="txt-xs c-dim">${r.due || ""}</div>
         </div>
       </div>
-      <div class="risk-measure"><span class="c-accent">预防措施：</span>${r.measure || '暂无'}</div>
-    `).join('')}
+      <div class="risk-measure"><span class="c-accent">预防措施：</span>${r.measure || "暂无"}</div>
+    `,
+      )
+      .join("")}
     <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="switchView('fmea')">查看完整 FMEA 分析 →</button>
   `;
-}
+      }
 
-function fillActions(p) {
-  if (!p.actions.length) {
-    document.getElementById('tp-act').innerHTML = '<div class="txt-sm c-muted">暂无待跟进事项</div>';
-    return;
-  }
-  document.getElementById('tp-act').innerHTML = p.actions.map(a => `
+      function fillActions(p) {
+        if (!p.actions.length) {
+          document.getElementById("tp-act").innerHTML =
+            '<div class="txt-sm c-muted">暂无待跟进事项</div>';
+          return;
+        }
+        document.getElementById("tp-act").innerHTML = p.actions
+          .map(
+            (a) => `
     <div class="action-row">
       <div class="pri-dot pri-${a.p}" style="margin-top:4px"></div>
       <div style="flex:1">
@@ -1494,220 +3258,269 @@ function fillActions(p) {
           <span class="txt-xs ${dueCls(a.due)}" style="margin-left:auto">${dueTxt(a.due)}</span>
         </div>
       </div>
-    </div>`).join('');
-}
-
-// ================================================================
-// TAB SWITCH
-// ================================================================
-function switchTab(el, pid) {
-  el.closest('.drawer-body').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  el.closest('.drawer-body').querySelectorAll('.tab-panel').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
-  document.getElementById(pid).classList.add('active');
-}
-
-// ================================================================
-// VIEW SWITCH
-// ================================================================
-function switchView(name) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('view-' + name).classList.add('active');
-  const nav = document.getElementById('nav-' + name);
-  if (nav) nav.classList.add('active');
-  if (name === 'fmea')    { initFMEAFilter(); renderFMEA(); }
-  if (name === 'actions') renderActions();
-  closeDrawer();
-}
-
-// ================================================================
-// AUTO-SYNC
-// ================================================================
-const LS_AUTOSYNC = 'pt_autosync';
-let _autoTimer    = null;
-let _cdownTimer   = null;
-
-function loadAutoSyncSettings() {
-  try {
-    const raw = localStorage.getItem(LS_AUTOSYNC);
-    if (raw) return JSON.parse(raw);
-  } catch(e) {}
-  return { enabled: true, interval: 1 };
-}
-function saveAutoSyncSettings(s) {
-  localStorage.setItem(LS_AUTOSYNC, JSON.stringify(s));
-}
-
-function applyAutoSync() {
-  const s = loadAutoSyncSettings();
-  const toggle = document.getElementById('autosync-toggle');
-  const intInp  = document.getElementById('autosync-interval');
-  if (toggle) toggle.checked = s.enabled;
-  if (intInp)  intInp.value  = s.interval;
-  _updateAutoSyncLabel(s.enabled);
-
-  clearInterval(_autoTimer);
-  clearInterval(_cdownTimer);
-
-  if (s.enabled) {
-    const ms = s.interval * 60 * 1000;
-    _autoTimer = setInterval(silentSync, ms);
-    _startCountdown(ms);
-  } else {
-    const status = document.getElementById('autosync-status');
-    if (status) status.textContent = '';
-  }
-}
-
-function _startCountdown(totalMs) {
-  let remaining = totalMs;
-  clearInterval(_cdownTimer);
-  _updateCountdownUI(remaining);
-  _cdownTimer = setInterval(() => {
-    remaining -= 1000;
-    if (remaining < 0) {
-      const s = loadAutoSyncSettings();
-      remaining = s.interval * 60 * 1000;
-    }
-    _updateCountdownUI(remaining);
-  }, 1000);
-}
-
-function _updateCountdownUI(ms) {
-  const el = document.getElementById('autosync-status');
-  if (!el) return;
-  const min = Math.floor(ms / 60000);
-  const sec = Math.floor((ms % 60000) / 1000);
-  el.innerHTML = `<span class="pulse" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle"></span>下次同步 ${min}:${String(sec).padStart(2,'0')} 后`;
-}
-
-function _updateAutoSyncLabel(enabled) {
-  const label  = document.getElementById('autosync-label');
-  const status = document.getElementById('autosync-status');
-  if (label) {
-    label.textContent = enabled ? '已开启' : '已关闭';
-    label.style.color = enabled ? 'var(--accent)' : '';
-  }
-  if (status && !enabled) status.textContent = '';
-}
-
-function onAutoSyncToggle() {
-  const enabled  = document.getElementById('autosync-toggle').checked;
-  const interval = parseInt(document.getElementById('autosync-interval').value) || 1;
-  saveAutoSyncSettings({ enabled, interval });
-  applyAutoSync();
-  showToast(enabled ? `自动同步已开启，每 ${interval} 分钟同步一次` : '自动同步已关闭');
-}
-
-function onIntervalChange() {
-  const enabled  = document.getElementById('autosync-toggle').checked;
-  let interval   = parseInt(document.getElementById('autosync-interval').value) || 1;
-  interval = Math.min(60, Math.max(1, interval));
-  document.getElementById('autosync-interval').value = interval;
-  saveAutoSyncSettings({ enabled, interval });
-  applyAutoSync();
-  if (enabled) showToast(`同步间隔已更新为 ${interval} 分钟`);
-}
-
-async function silentSync() {
-  const dirHandle = await idbGet(IDB_STORE, 'dirHandle');
-  if (!dirHandle) return;
-  try {
-    const perm = await dirHandle.queryPermission({ mode: 'read' });
-    if (perm !== 'granted') return;
-  } catch(e) { return; }
-
-  const projects  = [];
-  const filesMeta = [];
-  try {
-    for await (const [name, entry] of dirHandle.entries()) {
-      if (entry.kind !== 'file') continue;
-      if (!name.toLowerCase().endsWith('.xlsx')) continue;
-      if (name.startsWith('~$')) continue;
-      const file   = await entry.getFile();
-      const buffer = await file.arrayBuffer();
-      const proj   = parseXlsx(buffer, name);
-      if (proj) {
-        projects.push(proj);
-        filesMeta.push({ name, size: Math.round(file.size / 1024),
-          lastModified: new Date(file.lastModified).toLocaleString('zh-CN'),
-          tasks: proj.tasks.length, risks: proj.risks.length });
+    </div>`,
+          )
+          .join("");
       }
-    }
-  } catch(e) { return; }
 
-  if (!projects.length) return;
+      // ================================================================
+      // TAB SWITCH
+      // ================================================================
+      function switchTab(el, pid) {
+        el.closest(".drawer-body")
+          .querySelectorAll(".tab")
+          .forEach((t) => t.classList.remove("active"));
+        el.closest(".drawer-body")
+          .querySelectorAll(".tab-panel")
+          .forEach((t) => t.classList.remove("active"));
+        el.classList.add("active");
+        document.getElementById(pid).classList.add("active");
+      }
 
-  projects.sort((a, b) => a.filename.localeCompare(b.filename, 'zh'));
-  projects.forEach((p, i) => p.code = `P${String(i+1).padStart(2,'0')}`);
+      // ================================================================
+      // VIEW SWITCH
+      // ================================================================
+      function switchView(name) {
+        document
+          .querySelectorAll(".view")
+          .forEach((v) => v.classList.remove("active"));
+        document
+          .querySelectorAll(".nav-item")
+          .forEach((n) => n.classList.remove("active"));
+        document.getElementById("view-" + name).classList.add("active");
+        const nav = document.getElementById("nav-" + name);
+        if (nav) nav.classList.add("active");
+        if (name === "fmea") {
+          initFMEAFilter();
+          renderFMEA();
+        }
+        if (name === "actions") renderActions();
+        closeDrawer();
+      }
 
-  currentData = { projects, folderName: dirHandle.name,
-    lastSync: new Date().toISOString(), files: filesMeta };
-  saveData();
+      // ================================================================
+      // AUTO-SYNC
+      // ================================================================
+      const LS_AUTOSYNC = "pt_autosync";
+      let _autoTimer = null;
+      let _cdownTimer = null;
 
-  for (const p of currentData.projects) {
-    for (const r of (p.risks || [])) {
-      const sc = await getScores(p.name, r.mode);
-      r._rpn = sc.s * sc.o * sc.d;
-    }
-  }
-  renderAll();
-  showToast('自动同步完成');
+      function loadAutoSyncSettings() {
+        try {
+          const raw = localStorage.getItem(LS_AUTOSYNC);
+          if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        return { enabled: true, interval: 1 };
+      }
+      function saveAutoSyncSettings(s) {
+        localStorage.setItem(LS_AUTOSYNC, JSON.stringify(s));
+      }
 
-  // Reset countdown after a successful sync
-  const s = loadAutoSyncSettings();
-  if (s.enabled) _startCountdown(s.interval * 60 * 1000);
-}
+      function applyAutoSync() {
+        const s = loadAutoSyncSettings();
+        const toggle = document.getElementById("autosync-toggle");
+        const intInp = document.getElementById("autosync-interval");
+        if (toggle) toggle.checked = s.enabled;
+        if (intInp) intInp.value = s.interval;
+        _updateAutoSyncLabel(s.enabled);
 
-// ================================================================
-// TOAST
-// ================================================================
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.opacity = '1';
-  t.style.transform = 'translateX(-50%) translateY(0)';
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => {
-    t.style.opacity = '0';
-    t.style.transform = 'translateX(-50%) translateY(20px)';
-  }, 3000);
-}
+        clearInterval(_autoTimer);
+        clearInterval(_cdownTimer);
 
-// ================================================================
-// INIT
-// ================================================================
-document.addEventListener('DOMContentLoaded', async () => {
-  // Check browser support
-  if (!window.showDirectoryPicker) {
-    document.getElementById('no-fs-api').style.display = 'block';
-  }
+        if (s.enabled) {
+          const ms = s.interval * 60 * 1000;
+          _autoTimer = setInterval(silentSync, ms);
+          _startCountdown(ms);
+        } else {
+          const status = document.getElementById("autosync-status");
+          if (status) status.textContent = "";
+        }
+      }
 
-  // Load persisted data
-  loadData();
-  renderAll();
+      function _startCountdown(totalMs) {
+        let remaining = totalMs;
+        clearInterval(_cdownTimer);
+        _updateCountdownUI(remaining);
+        _cdownTimer = setInterval(() => {
+          remaining -= 1000;
+          if (remaining < 0) {
+            const s = loadAutoSyncSettings();
+            remaining = s.interval * 60 * 1000;
+          }
+          _updateCountdownUI(remaining);
+        }, 1000);
+      }
 
-  // Restore folder display name
-  if (currentData.folderName) {
-    updateFolderUI(currentData.folderName);
-  }
+      function _updateCountdownUI(ms) {
+        const el = document.getElementById("autosync-status");
+        if (!el) return;
+        const min = Math.floor(ms / 60000);
+        const sec = Math.floor((ms % 60000) / 1000);
+        el.innerHTML = `<span class="pulse" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:5px;vertical-align:middle"></span>下次同步 ${min}:${String(sec).padStart(2, "0")} 后`;
+      }
 
-  // Pre-load FMEA scores cache for heatmap
-  for (const p of currentData.projects) {
-    for (const r of (p.risks || [])) {
-      const sc = await getScores(p.name, r.mode);
-      r._rpn = sc.s * sc.o * sc.d;
-    }
-  }
-  // Re-render to show correct risk counts
-  if (currentData.projects.length) {
-    renderDashboard();
-  }
+      function _updateAutoSyncLabel(enabled) {
+        const label = document.getElementById("autosync-label");
+        const status = document.getElementById("autosync-status");
+        if (label) {
+          label.textContent = enabled ? "已开启" : "已关闭";
+          label.style.color = enabled ? "var(--accent)" : "";
+        }
+        if (status && !enabled) status.textContent = "";
+      }
 
-  // Start auto-sync (default: enabled, 1 min)
-  applyAutoSync();
-});
-</script>
-</body>
+      function onAutoSyncToggle() {
+        const enabled = document.getElementById("autosync-toggle").checked;
+        const interval =
+          parseInt(document.getElementById("autosync-interval").value) || 1;
+        saveAutoSyncSettings({ enabled, interval });
+        applyAutoSync();
+        showToast(
+          enabled
+            ? `自动同步已开启，每 ${interval} 分钟同步一次`
+            : "自动同步已关闭",
+        );
+      }
+
+      function onIntervalChange() {
+        const enabled = document.getElementById("autosync-toggle").checked;
+        let interval =
+          parseInt(document.getElementById("autosync-interval").value) || 1;
+        interval = Math.min(60, Math.max(1, interval));
+        document.getElementById("autosync-interval").value = interval;
+        saveAutoSyncSettings({ enabled, interval });
+        applyAutoSync();
+        if (enabled) showToast(`同步间隔已更新为 ${interval} 分钟`);
+      }
+
+      async function silentSync() {
+        const dirHandle = await idbGet(IDB_STORE, "dirHandle");
+        if (!dirHandle) return;
+        try {
+          const perm = await dirHandle.queryPermission({ mode: "read" });
+          if (perm !== "granted") return;
+        } catch (e) {
+          return;
+        }
+
+        const projects = [];
+        const filesMeta = [];
+        try {
+          for await (const [name, entry] of dirHandle.entries()) {
+            if (entry.kind !== "file") continue;
+            if (!name.toLowerCase().endsWith(".xlsx")) continue;
+            if (name.startsWith("~$")) continue;
+            const file = await entry.getFile();
+            const buffer = await file.arrayBuffer();
+            const workbookProjects = parseXlsx(buffer, name);
+            if (workbookProjects.length) {
+              projects.push(...workbookProjects);
+              filesMeta.push({
+                name,
+                size: Math.round(file.size / 1024),
+                lastModified: new Date(file.lastModified).toLocaleString(
+                  "zh-CN",
+                ),
+                sheets: workbookProjects.length,
+                tasks: workbookProjects.reduce(
+                  (sum, item) => sum + item.tasks.length,
+                  0,
+                ),
+                risks: workbookProjects.reduce(
+                  (sum, item) => sum + item.risks.length,
+                  0,
+                ),
+              });
+            }
+          }
+        } catch (e) {
+          return;
+        }
+
+        if (!projects.length) return;
+
+        projects.sort(
+          (a, b) =>
+            a.filename.localeCompare(b.filename, "zh") ||
+            (a.subProjectName || "").localeCompare(
+              b.subProjectName || "",
+              "zh",
+            ),
+        );
+        projects.forEach(
+          (p, i) => (p.code = `P${String(i + 1).padStart(2, "0")}`),
+        );
+
+        currentData = {
+          projects,
+          folderName: dirHandle.name,
+          lastSync: new Date().toISOString(),
+          files: filesMeta,
+        };
+        saveData();
+
+        for (const p of currentData.projects) {
+          for (const r of p.risks || []) {
+            const sc = await getScores(p.name, r.mode);
+            r._rpn = sc.s * sc.o * sc.d;
+          }
+        }
+        renderAll();
+        showToast("自动同步完成");
+
+        // Reset countdown after a successful sync
+        const s = loadAutoSyncSettings();
+        if (s.enabled) _startCountdown(s.interval * 60 * 1000);
+      }
+
+      // ================================================================
+      // TOAST
+      // ================================================================
+      function showToast(msg) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.style.opacity = "1";
+        t.style.transform = "translateX(-50%) translateY(0)";
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => {
+          t.style.opacity = "0";
+          t.style.transform = "translateX(-50%) translateY(20px)";
+        }, 3000);
+      }
+
+      // ================================================================
+      // INIT
+      // ================================================================
+      document.addEventListener("DOMContentLoaded", async () => {
+        // Check browser support
+        if (!window.showDirectoryPicker) {
+          document.getElementById("no-fs-api").style.display = "block";
+        }
+
+        // Load persisted data
+        loadData();
+        renderAll();
+
+        // Restore folder display name
+        if (currentData.folderName) {
+          updateFolderUI(currentData.folderName);
+        }
+
+        // Pre-load FMEA scores cache for heatmap
+        for (const p of currentData.projects) {
+          for (const r of p.risks || []) {
+            const sc = await getScores(p.name, r.mode);
+            r._rpn = sc.s * sc.o * sc.d;
+          }
+        }
+        // Re-render to show correct risk counts
+        if (currentData.projects.length) {
+          renderDashboard();
+        }
+
+        // Start auto-sync (default: enabled, 1 min)
+        applyAutoSync();
+      });
+    </script>
+  </body>
 </html>
