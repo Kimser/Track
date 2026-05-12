@@ -2055,41 +2055,54 @@
         const normalizedSheetName =
           cellStr(sheetName) || `Sheet${sheetIndex + 1}`;
 
-        function findCol(name) {
-          for (let r = 3; r <= 6 && r < rows.length; r++) {
+        function findColInfo(name) {
+          for (let r = 1; r <= 6 && r < rows.length; r++) {
             const row = rows[r] || [];
             for (let c = 0; c < row.length; c++) {
-              if (cellStr(row[c]) === name) return c;
+              if (cellStr(row[c]) === name) return { row: r, col: c };
             }
           }
-          return -1;
+          return null;
         }
 
-        const startIdx = findCol("开始时间");
-        const phaseIdx = findCol("关键里程碑");
-        const taskIdx = findCol("里程碑分解");
+        const startInfo = findColInfo("开始时间");
+        const endInfo = findColInfo("结束时间");
+        const phaseInfo = findColInfo("关键里程碑");
+        const taskInfo = findColInfo("里程碑分解");
+        const deptInfo = findColInfo("负责部门");
+        const ownerInfo = findColInfo("负责人");
+        const membersInfo = findColInfo("小组成员");
+        const progressInfo = findColInfo("工作进度");
+        const statusInfo = findColInfo("完成状态");
+        const descInfo = findColInfo("工作进度情况描述");
+        const reportInfo = findColInfo("阶段性完成情况汇报");
+        const riskInfo = findColInfo("风险");
+        const measureInfo = findColInfo("解决措施");
+        const resourceInfo = findColInfo("资源需求");
+
+        const phaseIdx = phaseInfo?.col ?? -1;
+        const taskIdx = taskInfo?.col ?? -1;
         if (phaseIdx < 0 && taskIdx < 0) return null;
 
         const COL = {
           phase: phaseIdx >= 0 ? phaseIdx : 1,
           task: taskIdx >= 0 ? taskIdx : 2,
-          dept: findCol("负责部门"),
-          owner: findCol("负责人"),
-          members: findCol("小组成员"),
-          startDate: startIdx >= 0 ? startIdx : 6,
-          endDate:
-            startIdx >= 0
-              ? startIdx + 1
-              : findCol("结束时间") >= 0
-                ? findCol("结束时间")
-                : 7,
-          progress: findCol("工作进度"),
-          status: findCol("完成状态"),
-          desc: findCol("工作进度情况描述"),
-          report: findCol("阶段性完成情况汇报"),
-          risk: findCol("风险"),
-          measure: findCol("解决措施"),
-          resource: findCol("资源需求"),
+          dept: deptInfo?.col ?? -1,
+          owner: ownerInfo?.col ?? -1,
+          members: membersInfo?.col ?? -1,
+          startDate: startInfo?.col ?? 6,
+          endDate: startInfo
+            ? startInfo.col + 1
+            : endInfo?.col >= 0
+              ? endInfo.col
+              : 7,
+          progress: progressInfo?.col ?? -1,
+          status: statusInfo?.col ?? -1,
+          desc: descInfo?.col ?? -1,
+          report: reportInfo?.col ?? -1,
+          risk: riskInfo?.col ?? -1,
+          measure: measureInfo?.col ?? -1,
+          resource: resourceInfo?.col ?? -1,
         };
 
         if (COL.dept < 0) COL.dept = 3;
@@ -2101,7 +2114,15 @@
         if (COL.risk < 0) COL.risk = COL.report + 1;
         if (COL.measure < 0) COL.measure = COL.risk + 1;
 
-        const firstTaskRow = rows.slice(5).find((row) => {
+        const dataStartRow =
+          Math.max(
+            phaseInfo?.row ?? 0,
+            taskInfo?.row ?? 0,
+            startInfo?.row ?? 0,
+            endInfo?.row ?? 0,
+          ) + 1;
+
+        const firstTaskRow = rows.slice(dataStartRow).find((row) => {
           if (!row) return false;
           return cellStr(row[COL.phase]) || cellStr(row[COL.task]);
         });
@@ -2114,7 +2135,7 @@
           risks = [];
         let currentPhase = "";
 
-        for (let i = 5; i < rows.length; i++) {
+        for (let i = dataStartRow; i < rows.length; i++) {
           const row = rows[i];
           if (!row || !row.some((c) => c !== null && String(c).trim()))
             continue;
