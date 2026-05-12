@@ -1500,7 +1500,7 @@
           <div class="kpi-row" id="kpi-row"></div>
           <div class="sec-hd">
             <div class="flex items-c">
-              <span class="sec-title">重点项目</span
+              <span class="sec-title">重点主项目</span
               ><span class="sec-sub">点击项目卡片查看详情</span>
             </div>
           </div>
@@ -1510,7 +1510,7 @@
             <div class="sec-hd">
               <span class="sec-title">风险全景热力矩阵</span
               ><span class="sec-sub txt-xs c-muted"
-                >横轴=项目，纵轴=RPN等级，数字=风险条数</span
+                >横轴=主项目，纵轴=RPN等级，数字=风险条数</span
               >
             </div>
             <div class="heatmap-box" id="heatmap-box"></div>
@@ -1581,7 +1581,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>项目</th>
+                  <th>主项目</th>
+                  <th>子项目</th>
                   <th>风险阶段</th>
                   <th>失效模式</th>
                   <th>影响对象</th>
@@ -1952,14 +1953,31 @@
       // ================================================================
       // FMEA SCORE PERSISTENCE
       // ================================================================
-      async function getScores(pname, mode) {
-        const key = `${pname}||${mode}`;
-        const saved = await idbGet(IDB_SCORES, key);
+      function buildScoreKey(pname, subProjectName, mode) {
+        return `${pname}||${subProjectName || ""}||${mode}`;
+      }
+      async function getScores(pname, subProjectName, mode) {
+        if (mode === undefined) {
+          mode = subProjectName;
+          subProjectName = "";
+        }
+        const key = buildScoreKey(pname, subProjectName, mode);
+        let saved = await idbGet(IDB_SCORES, key);
+        if (!saved && subProjectName) {
+          saved = await idbGet(IDB_SCORES, `${pname}||${mode}`);
+        }
         if (saved) return saved;
         return defaultScores(mode);
       }
-      async function saveScores(pname, mode, s, o, d) {
-        const key = `${pname}||${mode}`;
+      async function saveScores(pname, subProjectName, mode, s, o, d) {
+        if (d === undefined) {
+          d = o;
+          o = s;
+          s = mode;
+          mode = subProjectName;
+          subProjectName = "";
+        }
+        const key = buildScoreKey(pname, subProjectName, mode);
         await idbPut(IDB_SCORES, key, { s: +s, o: +o, d: +d });
       }
 
@@ -2453,7 +2471,7 @@
         renderAll();
         setSyncLoading(false);
         showToast(
-          `✓ 同步完成！已加载 ${projects.length} 个子项目、${projects.reduce((s, p) => s + p.risks.length, 0)} 条风险`,
+          `✓ 同步完成！已加载 ${getMainProjects().length} 个主项目、${projects.length} 个子项目`,
         );
       }
 
@@ -2538,16 +2556,197 @@
         return `<span class="stag stag-${s}"><span class="sdot" style="background:${stc(s)}"></span>${stl(s)}</span>`;
       }
 
+      function mainProjectKey(project) {
+        return (
+          cellStr(project.workbookName) ||
+          cellStr(project.filename).replace(/\.xlsx?$/i, "") ||
+          cellStr(project.name) ||
+          "未命名主项目"
+        );
+      }
+
+      function projectSortName(project) {
+        return project.subProjectName || project.name || "";
+      }
+
+      function aggregateStatus(items) {
+        if (items.some((item) => item.status === "delayed")) return "delayed";
+        if (items.some((item) => item.status === "at_risk")) return "at_risk";
+        return "healthy";
+      }
+
+      function joinLimited(arr, limit = 2) {
+        const list = [...new Set(arr.filter(Boolean))];
+        if (!list.length) return "";
+        if (list.length <= limit) return list.join(" / ");
+        return `${list.slice(0, limit).join(" / ")} 等 ${list.length} 个`;
+      }
+
+      function jsStr(s) {
+        return String(s || "")
+          .replace(/\\/g, "\\\\")
+          .replace(/'/g, "\\'");
+      }
+
+      function getMainProjects() {
+        const grouped = new Map();
+
+        currentData.projects.forEach((project) => {
+          const key = mainProjectKey(project);
+          if (!grouped.has(key)) {
+            grouped.set(key, {
+              id: "",
+              code: "",
+              name: key,
+              children: [],
+              tasks: [],
+              risks: [],
+              actions: [],
+              milestones: [],
+              owner: "",
+              dept: "",
+              start: "",
+              due: "",
+              prog: 0,
+              status: "healthy",
+              update: "",
+              doneChildren: 0,
+            });
+          }
+          grouped.get(key).children.push(project);
+        });
+
+        const mainProjects = [...grouped.values()]
+          .map((group) => {
+            group.children.sort((a, b) =>
+              projectSortName(a).localeCompare(projectSortName(b), "zh"),
+            );
+
+            const ownerCounts = {};
+            const starts = [];
+            const dues = [];
+            const updates = [];
+            let progressWeight = 0;
+            let progressTotal = 0;
+
+            group.children.forEach((child) => {
+              const weight = child.tasks.length || 1;
+              progressWeight += weight;
+              progressTotal += child.prog * weight;
+              if (child.owner)
+                ownerCounts[child.owner] = (ownerCounts[child.owner] || 0) + 1;
+              if (child.start) starts.push(child.start);
+              if (child.due) dues.push(child.due);
+              if (child.update && child.update !== "暂无进展更新") {
+                updates.push(
+                  `${child.subProjectName || child.name}：${child.update}`,
+                );
+              }
+
+              group.tasks.push(
+                ...child.tasks.map((task) => ({
+                  ...task,
+                  subProjectName: child.subProjectName || child.name,
+                  childStatus: child.status,
+                  projectId: child.id,
+                })),
+              );
+              group.risks.push(
+                ...child.risks.map((risk) => ({
+                  ...risk,
+                  subProjectName: child.subProjectName || child.name,
+                  mainProjectName: group.name,
+                  projectId: child.id,
+                  parentName: child.name,
+                })),
+              );
+              group.actions.push(
+                ...child.actions.map((action) => ({
+                  ...action,
+                  subProjectName: child.subProjectName || child.name,
+                  mainProjectName: group.name,
+                  projectId: child.id,
+                  pcode: child.code,
+                })),
+              );
+            });
+
+            group.prog = progressWeight
+              ? Math.round(progressTotal / progressWeight)
+              : 0;
+            group.status = aggregateStatus(group.children);
+            group.owner =
+              Object.entries(ownerCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ||
+              "";
+            group.dept = joinLimited(
+              group.children.map((item) => item.dept),
+              2,
+            );
+            group.start = starts.sort()[0] || "";
+            group.due = dues.sort()[dues.length - 1] || "";
+            group.doneChildren = group.children.filter(
+              (child) =>
+                child.prog >= 100 ||
+                (child.tasks.length &&
+                  child.tasks.every((task) => task.status === "done")),
+            ).length;
+            group.update =
+              updates[0] ||
+              `共 ${group.children.length} 个子项目，${group.risks.length} 条风险，${group.actions.length} 项待跟进`;
+
+            group.milestones = group.children.map((child) => ({
+              name: child.subProjectName || child.name,
+              fullName: child.subProjectName || child.name,
+              status:
+                child.prog >= 100
+                  ? "done"
+                  : child.prog > 0 || child.status !== "healthy"
+                    ? "current"
+                    : "pending",
+            }));
+
+            return group;
+          })
+          .sort((a, b) => a.name.localeCompare(b.name, "zh"));
+
+        mainProjects.forEach((group, index) => {
+          group.id = `m_${safeSheetKey(group.name, index)}_${index}`;
+          group.code = `M${String(index + 1).padStart(2, "0")}`;
+        });
+
+        return mainProjects;
+      }
+
+      function findMainProjectById(id) {
+        return getMainProjects().find((project) => project.id === id) || null;
+      }
+
+      function groupBySubProject(items) {
+        const map = new Map();
+        items.forEach((item) => {
+          const key = item.subProjectName || "未命名子项目";
+          if (!map.has(key)) map.set(key, []);
+          map.get(key).push(item);
+        });
+        return [...map.entries()].map(([name, entries]) => ({ name, entries }));
+      }
+
       // ================================================================
       // RENDER ALL
       // ================================================================
       function renderAll() {
-        const { projects } = currentData;
+        const mainProjects = getMainProjects();
+        const totalRisks = currentData.projects.reduce(
+          (s, p) => s + p.risks.length,
+          0,
+        );
+        const totalActions = currentData.projects.reduce(
+          (s, p) => s + p.actions.length,
+          0,
+        );
 
         // Update badges
-        document.getElementById("nb-proj").textContent = projects.length;
-        const totalRisks = projects.reduce((s, p) => s + p.risks.length, 0);
-        const totalActions = projects.reduce((s, p) => s + p.actions.length, 0);
+        document.getElementById("nb-proj").textContent = mainProjects.length;
         document.getElementById("nb-risk").textContent = totalRisks;
         document.getElementById("nb-action").textContent = totalActions;
 
@@ -2561,7 +2760,7 @@
             })
           : "";
         document.getElementById("dash-subtitle").textContent =
-          `${projects.length} 个子项目${syncTime ? " · 上次同步 " + syncTime : " · 尚未同步数据"}`;
+          `${mainProjects.length} 个主项目 · ${currentData.projects.length} 个子项目${syncTime ? " · 上次同步 " + syncTime : " · 尚未同步数据"}`;
 
         // Update topbar
         if (currentData.folderName) updateFolderUI(currentData.folderName);
@@ -2575,9 +2774,9 @@
       // RENDER DASHBOARD
       // ================================================================
       function renderDashboard() {
-        const { projects } = currentData;
+        const mainProjects = getMainProjects();
 
-        if (!projects.length) {
+        if (!mainProjects.length) {
           document.getElementById("kpi-row").innerHTML = "";
           document.getElementById("proj-grid").innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
@@ -2594,29 +2793,35 @@
           return;
         }
 
-        const healthy = projects.filter((p) => p.status === "healthy").length;
-        const at_risk = projects.filter((p) => p.status === "at_risk").length;
-        const delayed = projects.filter((p) => p.status === "delayed").length;
-        const totalRisk = projects.reduce((s, p) => s + p.risks.length, 0);
+        const healthy = mainProjects.filter(
+          (p) => p.status === "healthy",
+        ).length;
+        const at_risk = mainProjects.filter(
+          (p) => p.status === "at_risk",
+        ).length;
+        const delayed = mainProjects.filter(
+          (p) => p.status === "delayed",
+        ).length;
+        const totalRisk = mainProjects.reduce((s, p) => s + p.risks.length, 0);
 
         document.getElementById("kpi-row").innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">子项目总数</div><div class="kpi-val c-accent">${projects.length}</div><div class="kpi-sub">已导入 sheet</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--accent)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">正常推进</div><div class="kpi-val c-success">${healthy}</div><div class="kpi-sub">健康度良好</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (healthy / projects.length) * 100 : 0}%;background:var(--success)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">存在风险</div><div class="kpi-val c-warn">${at_risk}</div><div class="kpi-sub">需重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (at_risk / projects.length) * 100 : 0}%;background:var(--warn)"></div></div></div>
-    <div class="kpi-card"><div class="kpi-label">延期预警</div><div class="kpi-val c-danger">${delayed}</div><div class="kpi-sub">需立即介入</div><div class="kpi-bar"><div class="kpi-fill" style="width:${projects.length ? (delayed / projects.length) * 100 : 0}%;background:var(--danger)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">主项目总数</div><div class="kpi-val c-accent">${mainProjects.length}</div><div class="kpi-sub">${currentData.projects.length} 个子项目</div><div class="kpi-bar"><div class="kpi-fill" style="width:100%;background:var(--accent)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">正常推进</div><div class="kpi-val c-success">${healthy}</div><div class="kpi-sub">主项目维度</div><div class="kpi-bar"><div class="kpi-fill" style="width:${mainProjects.length ? (healthy / mainProjects.length) * 100 : 0}%;background:var(--success)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">存在风险</div><div class="kpi-val c-warn">${at_risk}</div><div class="kpi-sub">主项目维度</div><div class="kpi-bar"><div class="kpi-fill" style="width:${mainProjects.length ? (at_risk / mainProjects.length) * 100 : 0}%;background:var(--warn)"></div></div></div>
+    <div class="kpi-card"><div class="kpi-label">延期预警</div><div class="kpi-val c-danger">${delayed}</div><div class="kpi-sub">主项目维度</div><div class="kpi-bar"><div class="kpi-fill" style="width:${mainProjects.length ? (delayed / mainProjects.length) * 100 : 0}%;background:var(--danger)"></div></div></div>
   `;
 
         document.getElementById("proj-grid").innerHTML = `
     <div class="proj-grid">
-      ${projects
+      ${mainProjects
         .map(
           (p) => `
         <div class="proj-card" id="pc${p.id}" onclick="openDrawer('${p.id}')">
           <div class="proj-top">
             <div class="proj-meta">
               <div class="proj-code">${p.code} · ${p.dept || "未知部门"}</div>
-              <div class="proj-name">${p.subProjectName || p.name}</div>
-              <div class="txt-xs c-muted">${p.name}${p.subProjectName && p.subProjectName !== p.name ? ` · 主项目` : ""}</div>
+              <div class="proj-name">${p.name}</div>
+              <div class="txt-xs c-muted">${p.children.length} 个子项目 · ${p.tasks.length} 条任务</div>
               <div class="owner-row">
                 <div class="mini-av">${initials(p.owner)}</div>
                 <span class="txt-sm c-muted">${p.owner || "未指定负责人"}</span>
@@ -2635,9 +2840,25 @@
             }
           </div>
           <div class="proj-update">${p.update}</div>
+          <div style="margin-top:10px;display:grid;gap:6px">
+            ${p.children
+              .slice(0, 3)
+              .map(
+                (child) => `
+              <div style="display:flex;align-items:center;gap:8px;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:7px 9px">
+                <span class="txt-xs" style="min-width:52px;color:var(--text)">${child.subProjectName || child.name}</span>
+                <div style="flex:1;height:4px;background:var(--border);border-radius:999px;overflow:hidden">
+                  <div style="width:${child.prog}%;height:100%;background:${stc(child.status)}"></div>
+                </div>
+                <span class="txt-xs c-muted" style="flex-shrink:0">${child.prog}%</span>
+              </div>`,
+              )
+              .join("")}
+            ${p.children.length > 3 ? `<div class="txt-xs c-dim">另有 ${p.children.length - 3} 个子项目，点击查看全部</div>` : ""}
+          </div>
           <div class="proj-foot">
             <span class="txt-xs c-dim">到期 ${p.due || "未定"}</span>
-            <span class="txt-xs c-muted">${p.tasks.filter((t) => t.status === "done").length}/${p.tasks.length} 任务</span>
+            <span class="txt-xs c-muted">${p.doneChildren}/${p.children.length} 子项目完成</span>
           </div>
         </div>
       `,
@@ -2657,7 +2878,7 @@
       // RENDER HEATMAP
       // ================================================================
       function renderHeatmap() {
-        const { projects } = currentData;
+        const projects = getMainProjects();
         const levels = [
           {
             label: "极高 (≥300)",
@@ -2710,9 +2931,7 @@
                 const bg = cnt > 0 ? lv.color1 : "transparent";
                 const c = cnt > 0 ? lv.textC : "var(--text-3)";
                 const tips =
-                  cnt > 0
-                    ? `${p.subProjectName || p.name}: ${cnt}条风险`
-                    : `${p.subProjectName || p.name}: 无`;
+                  cnt > 0 ? `${p.name}: ${cnt}条风险` : `${p.name}: 无`;
                 return `<td class="hmap-cell" style="background:${bg};color:${c}" data-tip="${tips}">${cnt > 0 ? cnt : "—"}</td>`;
               })
               .join("");
@@ -2731,10 +2950,10 @@
       let _fmeaRisks = []; // cached with scores
 
       async function renderFMEA() {
-        const { projects } = currentData;
-        if (!projects.length) {
+        const mainProjects = getMainProjects();
+        if (!mainProjects.length) {
           document.getElementById("fmea-tbody").innerHTML =
-            '<tr><td colspan="11" style="text-align:center;color:var(--text-2);padding:40px">尚未加载数据，请先同步 Excel 文件</td></tr>';
+            '<tr><td colspan="12" style="text-align:center;color:var(--text-2);padding:40px">尚未加载数据，请先同步 Excel 文件</td></tr>';
           document.getElementById("fmea-stats").innerHTML = "";
           return;
         }
@@ -2744,19 +2963,27 @@
 
         // Build all risks with scores (async)
         let allRisks = [];
-        for (const p of projects) {
-          for (const r of p.risks || []) {
-            const sc = await getScores(p.name, r.mode);
-            const rpn = sc.s * sc.o * sc.d;
-            r._rpn = rpn; // cache on object
-            allRisks.push({
-              ...r,
-              ...sc,
-              rpn,
-              pname: p.name,
-              subProjectName: p.subProjectName || p.name,
-              pcode: p.code,
-            });
+        for (const mainProject of mainProjects) {
+          for (const child of mainProject.children) {
+            for (const r of child.risks || []) {
+              const sc = await getScores(
+                child.name,
+                child.subProjectName || child.name,
+                r.mode,
+              );
+              const rpn = sc.s * sc.o * sc.d;
+              r._rpn = rpn; // cache on object
+              allRisks.push({
+                ...r,
+                ...sc,
+                rpn,
+                pname: mainProject.name,
+                subProjectName: child.subProjectName || child.name,
+                pcode: mainProject.code,
+                childCode: child.code,
+                projectId: child.id,
+              });
+            }
           }
         }
 
@@ -2765,7 +2992,12 @@
         else if (lf === "mid")
           allRisks = allRisks.filter((r) => r.rpn >= 100 && r.rpn < 200);
         else if (lf === "low") allRisks = allRisks.filter((r) => r.rpn < 100);
-        allRisks.sort((a, b) => b.rpn - a.rpn);
+        allRisks.sort(
+          (a, b) =>
+            a.pcode.localeCompare(b.pcode, "zh") ||
+            b.rpn - a.rpn ||
+            a.subProjectName.localeCompare(b.subProjectName, "zh"),
+        );
         _fmeaRisks = allRisks;
 
         const total = allRisks.length;
@@ -2778,31 +3010,73 @@
     <div class="kpi-card"><div class="kpi-label">中风险 (100–199)</div><div class="kpi-val c-warn" style="font-size:24px">${mid}</div><div class="kpi-sub">重点关注</div><div class="kpi-bar"><div class="kpi-fill" style="width:${total ? (mid / total) * 100 : 0}%;background:var(--warn)"></div></div></div>
   `;
 
+        if (!allRisks.length) {
+          document.getElementById("fmea-tbody").innerHTML =
+            '<tr><td colspan="12" style="text-align:center;color:var(--text-2);padding:40px">当前筛选条件下暂无风险数据</td></tr>';
+          if (fmeaChart) fmeaChart.destroy();
+          fmeaChart = null;
+          return;
+        }
+
+        const groupedRisks = new Map();
+        allRisks.forEach((risk) => {
+          if (!groupedRisks.has(risk.pcode)) {
+            groupedRisks.set(risk.pcode, {
+              code: risk.pcode,
+              name: risk.pname,
+              items: [],
+            });
+          }
+          groupedRisks.get(risk.pcode).items.push(risk);
+        });
+
         const sc = (v, hi = 7, md = 5) =>
           v >= hi ? "var(--danger)" : v >= md ? "var(--warn)" : "var(--text)";
-        document.getElementById("fmea-tbody").innerHTML = allRisks
-          .map(
-            (r, idx) => `
-    <tr>
-      <td><span class="txt-xs c-dim">${r.pcode}</span><br><span class="txt-sm">${r.subProjectName.slice(0, 10)}${r.subProjectName.length > 10 ? "…" : ""}</span><br><span class="txt-xs c-muted">${r.pname}</span></td>
-      <td class="txt-xs c-muted" style="max-width:100px">${r.phase ? r.phase.slice(0, 16) + (r.phase.length > 16 ? "…" : "") : "—"}</td>
-      <td style="font-size:13px;font-weight:500;max-width:160px">${r.mode}</td>
-      <td class="txt-sm c-muted" style="max-width:120px">${r.effect}</td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.s}" style="color:${sc(r.s)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="s" data-ridx="${idx}"/></td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.o}" style="color:${sc(r.o)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="o" data-ridx="${idx}"/></td>
-      <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.d}" style="color:${sc(r.d)}" onchange="onScoreChange('${r.pname}','${r.mode.replace(/'/g, "\\'")}',this)" data-field="d" data-ridx="${idx}"/></td>
-      <td style="text-align:center"><span class="rpn-pill ${rpnClass(r.rpn)}" id="rpn-${idx}">${r.rpn}</span></td>
-      <td class="txt-sm c-muted" style="max-width:160px">${r.measure || "—"}</td>
-      <td class="txt-sm">${r.owner || "—"}</td>
-      <td class="txt-xs c-muted" style="white-space:nowrap">${r.due || "—"}</td>
-    </tr>`,
-          )
+        document.getElementById("fmea-tbody").innerHTML = [
+          ...groupedRisks.values(),
+        ]
+          .map((group) => {
+            const groupHigh = group.items.filter((r) => r.rpn >= 200).length;
+            return `
+              <tr>
+                <td colspan="12" style="background:var(--bg-3);padding:12px 14px;border-bottom:1px solid var(--border)">
+                  <div class="flex items-c" style="justify-content:space-between;gap:12px;flex-wrap:wrap">
+                    <div>
+                      <div style="font-size:13px;font-weight:600;color:var(--text)">${group.code} · ${group.name}</div>
+                      <div class="txt-xs c-muted">${new Set(group.items.map((item) => item.subProjectName)).size} 个子项目 · ${group.items.length} 条风险</div>
+                    </div>
+                    <div class="txt-xs ${groupHigh ? "c-danger" : "c-muted"}">${groupHigh ? `${groupHigh} 条高风险` : "暂无高风险"}</div>
+                  </div>
+                </td>
+              </tr>
+              ${group.items
+                .map(
+                  (r, idx) => `
+                <tr>
+                  <td><span class="txt-xs c-dim">${r.pcode}</span><br><span class="txt-sm">${r.pname}</span></td>
+                  <td><span class="txt-xs c-dim">${r.childCode}</span><br><span class="txt-sm">${r.subProjectName.slice(0, 12)}${r.subProjectName.length > 12 ? "…" : ""}</span></td>
+                  <td class="txt-xs c-muted" style="max-width:100px">${r.phase ? r.phase.slice(0, 16) + (r.phase.length > 16 ? "…" : "") : "—"}</td>
+                  <td style="font-size:13px;font-weight:500;max-width:160px">${r.mode}</td>
+                  <td class="txt-sm c-muted" style="max-width:120px">${r.effect}</td>
+                  <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.s}" style="color:${sc(r.s)}" onchange="onScoreChange('${jsStr(r.projectId)}','${jsStr(r.pname)}','${jsStr(r.subProjectName)}','${jsStr(r.mode)}',this)" data-field="s" data-ridx="${group.code}-${idx}"/></td>
+                  <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.o}" style="color:${sc(r.o)}" onchange="onScoreChange('${jsStr(r.projectId)}','${jsStr(r.pname)}','${jsStr(r.subProjectName)}','${jsStr(r.mode)}',this)" data-field="o" data-ridx="${group.code}-${idx}"/></td>
+                  <td style="text-align:center"><input class="score-inp" type="number" min="1" max="10" value="${r.d}" style="color:${sc(r.d)}" onchange="onScoreChange('${jsStr(r.projectId)}','${jsStr(r.pname)}','${jsStr(r.subProjectName)}','${jsStr(r.mode)}',this)" data-field="d" data-ridx="${group.code}-${idx}"/></td>
+                  <td style="text-align:center"><span class="rpn-pill ${rpnClass(r.rpn)}" id="rpn-${group.code}-${idx}">${r.rpn}</span></td>
+                  <td class="txt-sm c-muted" style="max-width:160px">${r.measure || "—"}</td>
+                  <td class="txt-sm">${r.owner || "—"}</td>
+                  <td class="txt-xs c-muted" style="white-space:nowrap">${r.due || "—"}</td>
+                </tr>`,
+                )
+                .join("")}`;
+          })
           .join("");
 
         // Chart
-        const top = allRisks.slice(0, 15);
+        const top = [...allRisks].sort((a, b) => b.rpn - a.rpn).slice(0, 15);
         const labels = top.map((r) =>
-          r.mode.length > 16 ? r.mode.slice(0, 16) + "…" : r.mode,
+          `${r.pname}-${r.subProjectName}`.length > 16
+            ? `${r.pname}-${r.subProjectName}`.slice(0, 16) + "…"
+            : `${r.pname}-${r.subProjectName}`,
         );
         const colors = top.map((r) =>
           r.rpn >= 200
@@ -2833,7 +3107,15 @@
               maintainAspectRatio: false,
               plugins: {
                 legend: { display: false },
-                tooltip: { callbacks: { label: (ctx) => ` RPN: ${ctx.raw}` } },
+                tooltip: {
+                  callbacks: {
+                    title: (items) => {
+                      const risk = top[items[0].dataIndex];
+                      return `${risk.pname} / ${risk.subProjectName}`;
+                    },
+                    label: (ctx) => ` RPN: ${ctx.raw}`,
+                  },
+                },
               },
               scales: {
                 x: {
@@ -2852,7 +3134,13 @@
         );
       }
 
-      async function onScoreChange(pname, mode, inp) {
+      async function onScoreChange(
+        projectId,
+        pname,
+        subProjectName,
+        mode,
+        inp,
+      ) {
         const row = inp.closest("tr");
         const inputs = row.querySelectorAll(".score-inp");
         const vals = {};
@@ -2866,9 +3154,9 @@
           rpnEl.textContent = rpn;
           rpnEl.className = "rpn-pill " + rpnClass(rpn);
         }
-        await saveScores(pname, mode, vals.s, vals.o, vals.d);
+        await saveScores(pname, subProjectName, mode, vals.s, vals.o, vals.d);
         // Update cached _rpn on project risks
-        const p = currentData.projects.find((p) => p.name === pname);
+        const p = currentData.projects.find((p) => p.id === projectId);
         if (p) {
           const r = p.risks.find((r) => r.mode === mode);
           if (r) r._rpn = rpn;
@@ -2878,10 +3166,10 @@
       function initFMEAFilter() {
         const sel = document.getElementById("fmea-proj-sel");
         sel.innerHTML = '<option value="">全部项目</option>';
-        currentData.projects.forEach((p) => {
+        getMainProjects().forEach((p) => {
           const o = document.createElement("option");
           o.value = p.code;
-          o.textContent = `${p.code} ${p.subProjectName || p.name}${p.subProjectName && p.subProjectName !== p.name ? ` · ${p.name}` : ""}`;
+          o.textContent = `${p.code} ${p.name} · ${p.children.length} 个子项目`;
           sel.appendChild(o);
         });
       }
@@ -2903,7 +3191,8 @@
           return;
         }
         const header = [
-          "项目",
+          "主项目",
+          "子项目",
           "风险阶段",
           "失效模式",
           "影响对象",
@@ -2917,6 +3206,7 @@
         ];
         const rows = _fmeaRisks.map((r) => [
           r.pname,
+          r.subProjectName,
           r.phase,
           r.mode,
           r.effect,
@@ -2946,8 +3236,8 @@
       // RENDER ACTIONS
       // ================================================================
       function renderActions() {
-        const { projects } = currentData;
-        if (!projects.length) {
+        const mainProjects = getMainProjects();
+        if (!mainProjects.length) {
           document.getElementById("kanban").innerHTML =
             '<div style="grid-column:1/-1;text-align:center;color:var(--text-2);padding:40px">尚未加载数据</div>';
           document.getElementById("weekly-items").innerHTML =
@@ -2955,16 +3245,12 @@
           return;
         }
 
-        const all = [];
-        projects.forEach((p) =>
-          p.actions.forEach((a) =>
-            all.push({
-              ...a,
-              pcode: p.code,
-              pname: p.name,
-              subProjectName: p.subProjectName || p.name,
-            }),
-          ),
+        const all = mainProjects.flatMap((project) =>
+          project.actions.map((action) => ({
+            ...action,
+            mainProjectCode: project.code,
+            mainProjectName: project.name,
+          })),
         );
 
         const cols = [
@@ -2973,41 +3259,56 @@
           { key: "closed", title: "已完成", items: [] },
         ];
 
-        document.getElementById("kanban").innerHTML = cols
-          .map((col) => {
-            const items =
-              col.key === "closed"
-                ? col.items || []
-                : all.filter((a) => a.s === col.key);
-            return `<div class="kn-col">
-      <div class="kn-col-hd"><span class="kn-col-title">${col.title}</span><span class="kn-col-cnt">${items.length}</span></div>
-      <div class="kn-col-body">
-        ${
-          items.length
-            ? items
-                .map(
-                  (a) => `
-          <div class="kn-card">
-            <div class="flex items-c gap6 mb8">
-              <div class="pri-dot pri-${a.p}"></div>
-              <span class="proj-tag">${a.pcode} · ${a.subProjectName}</span>
-              <span class="txt-xs c-muted" style="margin-left:auto">${PRI_LABEL[a.p] || ""}优先</span>
-            </div>
-            <div class="kn-title">${a.t}</div>
-            <div class="kn-foot">
-              <div class="flex items-c gap4">
-                <div class="mini-av" style="width:20px;height:20px;font-size:9px">${initials(a.o)}</div>
-                <span class="txt-xs c-muted">${a.o}</span>
+        document.getElementById("kanban").innerHTML = mainProjects
+          .map((project) => {
+            const projectCols = cols.map((col) => {
+              const items =
+                col.key === "closed"
+                  ? col.items || []
+                  : project.actions.filter((action) => action.s === col.key);
+              return `<div class="kn-col">
+                <div class="kn-col-hd"><span class="kn-col-title">${col.title}</span><span class="kn-col-cnt">${items.length}</span></div>
+                <div class="kn-col-body">
+                  ${
+                    items.length
+                      ? items
+                          .map(
+                            (a) => `
+                      <div class="kn-card">
+                        <div class="flex items-c gap6 mb8">
+                          <div class="pri-dot pri-${a.p}"></div>
+                          <span class="proj-tag">${a.subProjectName}</span>
+                          <span class="txt-xs c-muted" style="margin-left:auto">${PRI_LABEL[a.p] || ""}优先</span>
+                        </div>
+                        <div class="kn-title">${a.t}</div>
+                        <div class="kn-foot">
+                          <div class="flex items-c gap4">
+                            <div class="mini-av" style="width:20px;height:20px;font-size:9px">${initials(a.o)}</div>
+                            <span class="txt-xs c-muted">${a.o}</span>
+                          </div>
+                          <span class="due-txt ${dueCls(a.due)}">${dueTxt(a.due)}</span>
+                        </div>
+                      </div>`,
+                          )
+                          .join("")
+                      : `<div class="txt-sm c-muted" style="padding:8px">暂无</div>`
+                  }
+                </div>
+              </div>`;
+            });
+
+            return `<div class="kn-col" style="grid-column:1/-1">
+              <div class="kn-col-hd">
+                <div>
+                  <div class="kn-col-title">${project.code} · ${project.name}</div>
+                  <div class="txt-xs c-muted">${project.children.length} 个子项目 · ${project.actions.length} 项待跟进</div>
+                </div>
+                <span class="kn-col-cnt">${project.actions.filter((a) => a.p === "high").length} 高优</span>
               </div>
-              <span class="due-txt ${dueCls(a.due)}">${dueTxt(a.due)}</span>
-            </div>
-          </div>`,
-                )
-                .join("")
-            : `<div class="txt-sm c-muted" style="padding:8px">暂无</div>`
-        }
-      </div>
-    </div>`;
+              <div style="padding:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+                ${projectCols.join("")}
+              </div>
+            </div>`;
           })
           .join("");
 
@@ -3026,7 +3327,8 @@
                 (a) => `
         <div class="flex items-c gap8" style="margin-bottom:8px">
           <div class="pri-dot pri-${a.p}"></div>
-          <span class="proj-tag">${a.pcode} · ${a.subProjectName}</span>
+          <span class="proj-tag">${a.mainProjectCode} · ${a.mainProjectName}</span>
+          <span class="txt-xs c-muted">${a.subProjectName}</span>
           <span style="font-size:13px;flex:1">${a.t}</span>
           <span class="txt-xs ${dueCls(a.due)}" style="flex-shrink:0">${a.o} · ${dueTxt(a.due)}</span>
         </div>`,
@@ -3072,7 +3374,7 @@
       // DRAWER
       // ================================================================
       function openDrawer(id) {
-        const p = currentData.projects.find((x) => x.id === id);
+        const p = findMainProjectById(id);
         if (!p) return;
         document
           .querySelectorAll(".proj-card")
@@ -3081,12 +3383,11 @@
         if (card) card.classList.add("sel");
 
         document.getElementById("dr-code").textContent =
-          `${p.code} · ${p.dept || ""} · ${p.name}`;
-        document.getElementById("dr-name").textContent =
-          p.subProjectName || p.name;
+          `${p.code} · ${p.dept || ""}`;
+        document.getElementById("dr-name").textContent = p.name;
         document.getElementById("dr-stag").innerHTML = statusTag(p.status);
         document.getElementById("dr-due").textContent =
-          `到期 ${p.due || "未定"} · ${p.prog}% 完成`;
+          `到期 ${p.due || "未定"} · ${p.prog}% 完成 · ${p.children.length} 个子项目`;
 
         fillTL(p);
         fillTasks(p);
@@ -3113,22 +3414,8 @@
       }
 
       function fillTL(p) {
-        const done = p.milestones.filter((m) => m.status === "done").length;
+        const done = p.children.filter((m) => m.prog >= 100).length;
         document.getElementById("tp-tl").innerHTML = `
-    <div class="tl">
-      ${p.milestones
-        .map(
-          (m) => `
-        <div class="tl-item ${m.status}">
-          <div class="tl-dot">
-            ${m.status === "done" ? `<svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="#0A0E1A" stroke-width="2"><path d="M1.5 4.5l2 2 4-4"/></svg>` : ""}
-            ${m.status === "current" ? `<div style="width:6px;height:6px;border-radius:50%;background:#fff"></div>` : ""}
-          </div>
-          <div class="tl-name">${m.name}</div>
-        </div>`,
-        )
-        .join("")}
-    </div>
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;margin-bottom:14px">
       <div class="txt-xs c-dim mb8">整体进度</div>
       <div style="background:var(--border);border-radius:4px;height:7px;overflow:hidden;margin-bottom:6px">
@@ -3136,7 +3423,7 @@
       </div>
       <div class="flex items-c" style="justify-content:space-between">
         <span class="txt-xs c-muted">${p.prog}% 已完成</span>
-        <span class="txt-xs c-muted">${done}/${p.milestones.length} 阶段</span>
+        <span class="txt-xs c-muted">${done}/${p.children.length} 子项目完成</span>
       </div>
     </div>
     <div class="flex gap8" style="flex-wrap:wrap;margin-bottom:14px">
@@ -3156,6 +3443,33 @@
     </div>
     <div class="txt-xs c-dim mb8">最新进展</div>
     <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px;font-size:13px;line-height:1.6;color:var(--text-2)">${p.update}</div>
+    <div class="txt-xs c-dim mb8 mt16">子项目概览</div>
+    <div style="display:grid;gap:8px">
+      ${p.children
+        .map(
+          (child) => `
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px">
+          <div class="flex items-c" style="justify-content:space-between;gap:10px">
+            <div>
+              <div style="font-size:13px;font-weight:600">${child.subProjectName || child.name}</div>
+              <div class="txt-xs c-muted">${child.owner || "未指定负责人"} · ${child.dept || "未知部门"}</div>
+            </div>
+            <div class="flex items-c gap8">
+              ${statusTag(child.status)}
+              <span class="txt-xs c-muted">${child.prog}%</span>
+            </div>
+          </div>
+          <div style="margin-top:8px;background:var(--border);border-radius:999px;height:5px;overflow:hidden">
+            <div style="height:100%;width:${child.prog}%;background:${stc(child.status)}"></div>
+          </div>
+          <div class="flex items-c txt-xs c-muted" style="justify-content:space-between;margin-top:8px">
+            <span>到期 ${child.due || "未定"}</span>
+            <span>${child.risks.length} 条风险 · ${child.actions.length} 项待跟进</span>
+          </div>
+        </div>`,
+        )
+        .join("")}
+    </div>
   `;
       }
 
@@ -3200,9 +3514,29 @@
         )
         .join("")}
     </div>
-    ${grp("进行中", ip, "cur")}
-    ${grp("已完成", dn, "done")}
-    ${grp("待开始", pd, "")}
+    ${groupBySubProject(p.tasks)
+      .map(
+        ({ name, entries }) => `
+      <div class="task-grp">
+        <div class="task-grp-hd">${name} (${entries.length})</div>
+        ${grp(
+          "进行中",
+          entries.filter((t) => t.status === "in-progress"),
+          "cur",
+        )}
+        ${grp(
+          "已完成",
+          entries.filter((t) => t.status === "done"),
+          "done",
+        )}
+        ${grp(
+          "待开始",
+          entries.filter((t) => t.status === "pending"),
+          "",
+        )}
+      </div>`,
+      )
+      .join("")}
   `;
       }
 
@@ -3212,27 +3546,34 @@
             '<div class="txt-sm c-muted">该项目暂无风险记录</div>';
           return;
         }
-        const sorted = [...p.risks].sort(
-          (a, b) => (b._rpn || 0) - (a._rpn || 0),
+        const sortedGroups = groupBySubProject(
+          [...p.risks].sort((a, b) => (b._rpn || 0) - (a._rpn || 0)),
         );
         document.getElementById("tp-risk").innerHTML = `
-    <div class="txt-xs c-dim mb12">${sorted.length} 条风险 · 按 RPN 降序（评分可在"风险分析"页编辑）</div>
-    ${sorted
+    <div class="txt-xs c-dim mb12">${p.risks.length} 条风险 · 按子项目分组展示（评分可在"风险分析"页编辑）</div>
+    ${sortedGroups
       .map(
-        (r) => `
-      <div class="risk-row">
-        <div class="rpn-pill ${rpnClass(r._rpn || 0)}">${r._rpn || "?"}</div>
-        <div style="flex:1">
-          <div style="font-size:13px;font-weight:500;margin-bottom:3px">${r.mode}</div>
-          <div class="txt-xs c-muted">${r.effect}</div>
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div class="txt-xs c-muted">${r.owner || ""}</div>
-          <div class="txt-xs c-dim">${r.due || ""}</div>
-        </div>
-      </div>
-      <div class="risk-measure"><span class="c-accent">预防措施：</span>${r.measure || "暂无"}</div>
-    `,
+        (group) => `
+      <div class="task-grp">
+        <div class="task-grp-hd">${group.name} (${group.entries.length})</div>
+        ${group.entries
+          .map(
+            (r) => `
+          <div class="risk-row">
+            <div class="rpn-pill ${rpnClass(r._rpn || 0)}">${r._rpn || "?"}</div>
+            <div style="flex:1">
+              <div style="font-size:13px;font-weight:500;margin-bottom:3px">${r.mode}</div>
+              <div class="txt-xs c-muted">${r.effect}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="txt-xs c-muted">${r.owner || ""}</div>
+              <div class="txt-xs c-dim">${r.due || ""}</div>
+            </div>
+          </div>
+          <div class="risk-measure"><span class="c-accent">预防措施：</span>${r.measure || "暂无"}</div>`,
+          )
+          .join("")}
+      </div>`,
       )
       .join("")}
     <button class="btn btn-ghost" style="width:100%;margin-top:8px" onclick="switchView('fmea')">查看完整 FMEA 分析 →</button>
@@ -3245,20 +3586,30 @@
             '<div class="txt-sm c-muted">暂无待跟进事项</div>';
           return;
         }
-        document.getElementById("tp-act").innerHTML = p.actions
+        document.getElementById("tp-act").innerHTML = groupBySubProject(
+          p.actions,
+        )
+          .map(
+            (group) => `
+      <div class="task-grp">
+        <div class="task-grp-hd">${group.name} (${group.entries.length})</div>
+        ${group.entries
           .map(
             (a) => `
-    <div class="action-row">
-      <div class="pri-dot pri-${a.p}" style="margin-top:4px"></div>
-      <div style="flex:1">
-        <div style="font-size:13px;font-weight:500;margin-bottom:6px">${a.t}</div>
-        <div class="flex items-c gap6">
-          <div class="mini-av" style="width:18px;height:18px;font-size:9px">${initials(a.o)}</div>
-          <span class="txt-xs c-muted">${a.o}</span>
-          <span class="txt-xs ${dueCls(a.due)}" style="margin-left:auto">${dueTxt(a.due)}</span>
-        </div>
-      </div>
-    </div>`,
+        <div class="action-row">
+          <div class="pri-dot pri-${a.p}" style="margin-top:4px"></div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500;margin-bottom:6px">${a.t}</div>
+            <div class="flex items-c gap6">
+              <div class="mini-av" style="width:18px;height:18px;font-size:9px">${initials(a.o)}</div>
+              <span class="txt-xs c-muted">${a.o}</span>
+              <span class="txt-xs ${dueCls(a.due)}" style="margin-left:auto">${dueTxt(a.due)}</span>
+            </div>
+          </div>
+        </div>`,
+          )
+          .join("")}
+      </div>`,
           )
           .join("");
       }
@@ -3461,7 +3812,11 @@
 
         for (const p of currentData.projects) {
           for (const r of p.risks || []) {
-            const sc = await getScores(p.name, r.mode);
+            const sc = await getScores(
+              p.name,
+              p.subProjectName || p.name,
+              r.mode,
+            );
             r._rpn = sc.s * sc.o * sc.d;
           }
         }
@@ -3509,7 +3864,11 @@
         // Pre-load FMEA scores cache for heatmap
         for (const p of currentData.projects) {
           for (const r of p.risks || []) {
-            const sc = await getScores(p.name, r.mode);
+            const sc = await getScores(
+              p.name,
+              p.subProjectName || p.name,
+              r.mode,
+            );
             r._rpn = sc.s * sc.o * sc.d;
           }
         }
